@@ -69,15 +69,18 @@ def test_backend_enabled_env_overrides_config(monkeypatch) -> None:
         bridge_tools._cfg_cache = None
 
 
-def test_config_paths_prefers_config_directory(monkeypatch) -> None:
+def test_config_paths_default_file(monkeypatch) -> None:
     monkeypatch.delenv("BRIDGE_SEARCH_CONFIG", raising=False)
-    monkeypatch.delenv("WSL_WINDOWS_SEARCH_BRIDGE_CONFIG", raising=False)
-    monkeypatch.delenv("WSL_BRIDGE_CONFIG", raising=False)
     paths = bridge_tools._config_paths()
-    assert len(paths) == 6
+    assert len(paths) == 1
     assert paths[0].endswith(os.path.join("config", "bridge-search.config.json"))
-    assert paths[1].endswith("bridge-search.config.json")
-    assert paths[2].endswith(os.path.join("config", "wsl-windows-search-bridge.config.json"))
+
+
+def test_config_paths_env_override(monkeypatch, tmp_path) -> None:
+    custom = tmp_path / "policy.json"
+    custom.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("BRIDGE_SEARCH_CONFIG", str(custom))
+    assert bridge_tools._config_paths() == [os.path.abspath(str(custom))]
 
 
 def test_backend_enabled_reads_config_when_env_unset(monkeypatch) -> None:

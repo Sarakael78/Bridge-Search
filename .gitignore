@@ -1,11 +1,5 @@
 __pycache__/
 *.pyc
 
-# Local bridge policy (copy from config/bridge-search.config.example.json)
+# Local policy (copy from config/bridge-search.config.example.json)
 config/bridge-search.config.json
-config/wsl-windows-search-bridge.config.json
-config/wsl-bridge.config.json
-# Legacy repo-root paths (still honored by bridge_tools if present)
-bridge-search.config.json
-wsl-windows-search-bridge.config.json
-wsl-bridge.config.json

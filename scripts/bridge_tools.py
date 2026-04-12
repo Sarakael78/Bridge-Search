@@ -8,9 +8,7 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
-# --- JSON config: config/bridge-search.config.json (preferred), or repo-root legacy filenames, or BRIDGE_SEARCH_CONFIG ---
-# Legacy env: WSL_WINDOWS_SEARCH_BRIDGE_CONFIG, WSL_BRIDGE_CONFIG.
-# Legacy paths: bridge-search.config.json et al. in repo root still honored if config/ file is absent.
+# --- JSON config: config/bridge-search.config.json, or BRIDGE_SEARCH_CONFIG (absolute path) ---
 _DEFAULTS: Dict[str, Any] = {
     "version": 1,
     "security": {
@@ -86,21 +84,12 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
 
 
 def _config_paths() -> List[str]:
-    for key in ("BRIDGE_SEARCH_CONFIG", "WSL_WINDOWS_SEARCH_BRIDGE_CONFIG", "WSL_BRIDGE_CONFIG"):
-        env = os.environ.get(key, "").strip()
-        if env:
-            return [os.path.abspath(env)]
+    env = os.environ.get("BRIDGE_SEARCH_CONFIG", "").strip()
+    if env:
+        return [os.path.abspath(env)]
     script_dir = os.path.dirname(os.path.abspath(__file__))
     root = os.path.abspath(os.path.join(script_dir, ".."))
-    cfg = os.path.join(root, "config")
-    return [
-        os.path.join(cfg, "bridge-search.config.json"),
-        os.path.join(root, "bridge-search.config.json"),
-        os.path.join(cfg, "wsl-windows-search-bridge.config.json"),
-        os.path.join(root, "wsl-windows-search-bridge.config.json"),
-        os.path.join(cfg, "wsl-bridge.config.json"),
-        os.path.join(root, "wsl-bridge.config.json"),
-    ]
+    return [os.path.join(root, "config", "bridge-search.config.json")]
 
 
 def get_bridge_config(reload: bool = False) -> Dict[str, Any]:
@@ -174,11 +163,7 @@ def _restricted_prefixes() -> Tuple[str, ...]:
 
 
 def _parse_allowed_prefixes_env() -> Optional[List[str]]:
-    raw = (
-        os.environ.get("BRIDGE_SEARCH_ALLOWED_PREFIXES", "").strip()
-        or os.environ.get("WSL_WINDOWS_SEARCH_BRIDGE_ALLOWED_PREFIXES", "").strip()
-        or os.environ.get("WSL_BRIDGE_ALLOWED_PREFIXES", "").strip()
-    )
+    raw = os.environ.get("BRIDGE_SEARCH_ALLOWED_PREFIXES", "").strip()
     if not raw:
         return None
     out: List[str] = []
@@ -561,11 +546,7 @@ def _wsl_locator_full_root_allowed() -> bool:
     sec = get_bridge_config().get("security", _DEFAULTS["security"])
     if bool(sec.get("allow_wsl_locator_from_filesystem_root", False)):
         return True
-    return (
-        os.environ.get("BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR", "").strip() == "1"
-        or os.environ.get("WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_LOCATOR", "").strip() == "1"
-        or os.environ.get("WSL_BRIDGE_ALLOW_ROOT_LOCATOR", "").strip() == "1"
-    )
+    return os.environ.get("BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR", "").strip() == "1"
 
 
 def _wsl_filename_find_root() -> str:
@@ -683,15 +664,11 @@ def _wsl_grep_root_allowed(wsl_search_path: str) -> Tuple[bool, str]:
     """Avoid grep-from-root unless explicitly opted in."""
     canon = _canonical_path(resolve_path(wsl_search_path, "wsl"))
     cfg_allow = bool(get_bridge_config().get("security", _DEFAULTS["security"]).get("allow_grep_from_filesystem_root", False))
-    env_allow = (
-        os.environ.get("BRIDGE_SEARCH_ALLOW_ROOT_GREP", "").strip() == "1"
-        or os.environ.get("WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_GREP", "").strip() == "1"
-        or os.environ.get("WSL_BRIDGE_ALLOW_ROOT_GREP", "").strip() == "1"
-    )
+    env_allow = os.environ.get("BRIDGE_SEARCH_ALLOW_ROOT_GREP", "").strip() == "1"
     if canon.rstrip(os.sep) == "/" and not cfg_allow and not env_allow:
         return (
             False,
-            "Refusing grep from '/'. Set allow_grep_from_filesystem_root in config/bridge-search.config.json, or BRIDGE_SEARCH_ALLOW_ROOT_GREP=1 (legacy: WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_GREP=1), or use a narrower wsl_search_path.",
+            "Refusing grep from '/'. Set allow_grep_from_filesystem_root in config/bridge-search.config.json, or BRIDGE_SEARCH_ALLOW_ROOT_GREP=1, or use a narrower wsl_search_path.",
         )
     if not is_path_allowed(wsl_search_path, "wsl"):
         return False, "SECURITY VIOLATION: Search root path not allowed."

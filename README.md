@@ -132,17 +132,17 @@ The MCP process runs with your user privileges. Controls are **defense in depth*
 | Mechanism | Behavior |
 |-----------|----------|
 | Path policy | After `wslpath` where needed, paths are checked with `os.path.realpath` against a **denylist** of sensitive prefixes (for example `/etc`, `/mnt/c/Windows`, `/mnt/c/Program Files`, `/usr`, `/var`). |
-| Optional allowlist | Set **`BRIDGE_SEARCH_ALLOWED_PREFIXES`** to a colon-separated list of absolute path prefixes (or non-empty **`allowed_prefixes`** in config). When set, **file operations** must fall under one of these prefixes after resolution; **search tools** also filter **returned result rows** to matching paths (strongest lock-down). Legacy: **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOWED_PREFIXES`**. |
+| Optional allowlist | Set **`BRIDGE_SEARCH_ALLOWED_PREFIXES`** to a colon-separated list of absolute path prefixes (or non-empty **`allowed_prefixes`** in config). When set, **file operations** must fall under one of these prefixes after resolution; **search tools** also filter **returned result rows** to matching paths (strongest lock-down). |
 | `is_confirmed` | A **workflow flag** for the agent—not cryptographic authorization and **not a substitute for OS-level approval** or host policy. **All writes** and **deletes** require `is_confirmed=True`. |
-| WSL content search root | Empty `wsl_search_path` defaults to **`$HOME`**. Searching from **`/`** requires **`BRIDGE_SEARCH_ALLOW_ROOT_GREP=1`** or **`allow_grep_from_filesystem_root`** in config. Legacy: **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_GREP`**. |
-| WSL filename search root | By default, `find` for WSL filename search runs under **`$HOME`** only. Full **`find /`** (with `/mnt` pruned) requires **`allow_wsl_locator_from_filesystem_root`** in config or **`BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR=1`**. Legacy: **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_LOCATOR`**. |
+| WSL content search root | Empty `wsl_search_path` defaults to **`$HOME`**. Searching from **`/`** requires **`BRIDGE_SEARCH_ALLOW_ROOT_GREP=1`** or **`allow_grep_from_filesystem_root`** in config. |
+| WSL filename search root | By default, `find` for WSL filename search runs under **`$HOME`** only. Full **`find /`** (with `/mnt` pruned) requires **`allow_wsl_locator_from_filesystem_root`** in config or **`BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR=1`**. |
 | Grep safety | WSL grep uses **`-F`**, **`-e`**, and **`--`** so patterns and paths are not treated as options. |
 | DoS limits | Catalog listing, locator hits, and AnyTXT HTTP responses are **capped** (see `scripts/bridge_tools.py` constants). |
 | Search result row filtering | When an allowlist is active (env and/or config), `locate_file_or_folder` and `locate_content_inside_files` drop result lines whose paths are outside allowed prefixes (Everything/`find`, WSL `grep`, AnyTXT). |
 
 ### Configuration file (relax or tighten policy)
 
-Place **`config/bridge-search.config.json`** under the repo (create the **`config/`** directory if needed), or set **`BRIDGE_SEARCH_CONFIG`** to an absolute path. Copy from **`config/bridge-search.config.example.json`** (defaults match built-in behavior; enables all four backends). Profile-specific examples:
+Place **`config/bridge-search.config.json`** under the repo (create the **`config/`** directory if needed), or point **`BRIDGE_SEARCH_CONFIG`** at any absolute path. Copy from **`config/bridge-search.config.example.json`** (defaults match built-in behavior; enables all four backends). Profile-specific examples:
 
 | File | Use case |
 |------|----------|
@@ -151,8 +151,6 @@ Place **`config/bridge-search.config.json`** under the repo (create the **`confi
 | **`config/bridge-search.config.everything-and-anytxt.example.json`** | **Both** Windows indexers; WSL `find`/`grep` off (merge keys if you need Linux-side search). |
 
 For a deliberately **relaxed** profile, see **`config/bridge-search.config.relaxed.json`** and merge only the keys you need.
-
-**Legacy:** If `config/bridge-search.config.json` is missing, the bridge still loads **`bridge-search.config.json`** from the **repository root** (same basename priority as below). Alternate names: **`config/wsl-windows-search-bridge.config.json`** or repo-root **`wsl-windows-search-bridge.config.json`**, **`config/wsl-bridge.config.json`** or repo-root **`wsl-bridge.config.json`**. Env overrides (absolute path; first set wins): **`BRIDGE_SEARCH_CONFIG`**, **`WSL_WINDOWS_SEARCH_BRIDGE_CONFIG`**, **`WSL_BRIDGE_CONFIG`**.
 
 Each example JSON file includes a **`_security_warning`** field: read it before editing. **Changing security-related settings is at your own risk.** This project and its maintainers are **not responsible** for data loss, leaked secrets, account compromise, or unstable systems.
 

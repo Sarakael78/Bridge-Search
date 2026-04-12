@@ -75,7 +75,7 @@ def locate_content_inside_files(
     """
     Search for text inside files (grep on WSL, AnyTXT HTTP on Windows).
     Enable/disable WSL grep vs AnyTXT via backends.wsl_grep / backends.anytxt (or BRIDGE_SEARCH_ENABLE_WSL_GREP / BRIDGE_SEARCH_ENABLE_ANYTXT).
-    Empty wsl_search_path searches under HOME. Grep from '/' requires BRIDGE_SEARCH_ALLOW_ROOT_GREP=1 (legacy: WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_GREP=1 or WSL_BRIDGE_ALLOW_ROOT_GREP=1).
+    Empty wsl_search_path searches under HOME. Grep from '/' requires BRIDGE_SEARCH_ALLOW_ROOT_GREP=1 or allow_grep_from_filesystem_root in config.
     When allowed_prefixes (config) or BRIDGE_SEARCH_ALLOWED_PREFIXES is set, result lines are filtered to paths under those prefixes (Everything/find rows, WSL grep hits, and AnyTXT rows).
     is_confirmed on other tools is a workflow flag for the agent, not cryptographic authorization or a substitute for OS-level approval.
     """
