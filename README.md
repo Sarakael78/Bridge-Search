@@ -8,6 +8,20 @@ Fast **filename** and **full-text** search across WSL2 and Windows without brute
 
 ---
 
+## Zero-touch (any MCP agent)
+
+For **OpenClaw, Claude Desktop, Cursor, Windsurf**, or any assistant that can run shell commands:
+
+1. On **Windows**, install what your [backends](#search-backends-everything-anytxt-wsl) need—at minimum see [Prerequisites (Windows)](#prerequisites-windows). Defaults assume **Everything** + **AnyTXT** are available.
+2. Give the agent this repo and one line, for example:  
+   **Clone `https://github.com/Sarakael78/Bridge-Search` and run `python3 scripts/setup_skill.py`.**  
+   Add flags if needed (see [Install (recommended)](#install-recommended)).
+3. Ensure **`mcporter`** is on **`PATH`** (see [Requirements](#requirements)), or plan to [register MCP manually](#advanced-manual-mcp-registration).
+
+Details, flags, and health checks are in [Install (recommended)](#install-recommended) below.
+
+---
+
 ## Requirements
 
 | Requirement | Notes |
@@ -88,13 +102,6 @@ python3 scripts/setup_skill.py
 python3 scripts/setup_skill.py --venv --dev
 python3 scripts/setup_skill.py --skip-checks
 ```
-
----
-
-## Zero-touch (any MCP agent)
-
-1. Complete **Windows** prerequisites for the backends you use (see above).
-2. Tell your agent: clone **`https://github.com/Sarakael78/Bridge-Search`** and run **`python3 scripts/setup_skill.py`** (add flags as needed). Ensure **`mcporter`** is available or follow up with manual registration.
 
 ---
 
