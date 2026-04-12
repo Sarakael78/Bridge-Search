@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import subprocess
@@ -11,6 +12,9 @@ import sys
 import urllib.error
 import urllib.request
 from typing import List, Optional, Sequence, Tuple
+
+
+DEFAULT_ANYTXT_URL = "http://127.0.0.1:9921/search"
 
 
 def run_command(cmd: Sequence[str], description: str) -> bool:
@@ -65,9 +69,9 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--anytxt-url",
-        default="http://127.0.0.1:9921/",
+        default=DEFAULT_ANYTXT_URL,
         metavar="URL",
-        help="Base URL for AnyTXT HTTP health check (default: http://127.0.0.1:9921/).",
+        help="Runtime/search URL for AnyTXT HTTP (default: http://127.0.0.1:9921/search). Accepts either a base URL or the full /search endpoint.",
     )
     p.add_argument(
         "--restart-gateway",
@@ -157,9 +161,7 @@ def _health_checks(anytxt_url: str) -> bool:
         return ok
 
     if ba:
-        url = anytxt_url.strip()
-        if not url.endswith("/"):
-            url += "/"
+        url = _probe_url_from_anytxt(anytxt_url)
         print(f"[*] Probing AnyTXT HTTP ({url})...")
         try:
             with urllib.request.urlopen(url, timeout=8) as resp:
@@ -222,6 +224,16 @@ def _mcporter_register(python_exe: str, server_path: str, mcporter_config: str) 
     if code == 0:
         return True
     combined = (err or "") + (out or "")
+    if "already exists" in combined.lower() or "duplicate" in combined.lower():
+        print("[~] Existing mcporter entry detected, replacing it...")
+        rm_code, rm_out, rm_err = run_command_capture(
+            ["mcporter", "config", "remove", "bridge-search", "--persist", mcporter_config], timeout=60
+        )
+        if rm_code == 0:
+            code, out, err = run_command_capture(cmd, timeout=60)
+            if code == 0:
+                return True
+            combined = (err or "") + (out or "")
     print(f"[!] mcporter config add failed: {combined.strip()}")
     print(
         "[i] If the server already exists, try:\n"
@@ -229,6 +241,45 @@ def _mcporter_register(python_exe: str, server_path: str, mcporter_config: str) 
         f"    # then re-run this script (config file: {mcporter_config})"
     )
     return False
+
+
+def _normalize_anytxt_url(raw: str) -> str:
+    url = raw.strip()
+    if not url:
+        return DEFAULT_ANYTXT_URL
+    if url.rstrip("/").endswith("/search"):
+        return url.rstrip("/")
+    return f"{url.rstrip('/')}/search"
+
+
+def _probe_url_from_anytxt(raw: str) -> str:
+    search_url = _normalize_anytxt_url(raw)
+    if search_url.endswith("/search"):
+        return search_url[: -len("/search")] + "/"
+    return search_url
+
+
+def _write_runtime_config(repo_root: str, anytxt_url: str) -> str:
+    config_dir = os.path.join(repo_root, "config")
+    config_path = os.path.join(config_dir, "bridge-search.config.json")
+    base = {"version": 1, "service": {"anytxt_url": _normalize_anytxt_url(anytxt_url)}}
+    os.makedirs(config_dir, exist_ok=True)
+    if os.path.isfile(config_path):
+        with open(config_path, "r", encoding="utf-8") as handle:
+            try:
+                current = json.load(handle)
+            except json.JSONDecodeError:
+                current = {}
+        merged = copy.deepcopy(current) if isinstance(current, dict) else {}
+        merged.setdefault("service", {})
+        merged["service"]["anytxt_url"] = base["service"]["anytxt_url"]
+        payload = merged
+    else:
+        payload = base
+    with open(config_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+        handle.write("\n")
+    return config_path
 
 
 def _openclaw_allowlist(skill_name: str, config_path: str) -> None:
@@ -297,6 +348,9 @@ def setup(args: argparse.Namespace) -> None:
 
     if not _pip_install(python_exe, requirements_txt, requirements_dev if args.dev else None, user):
         sys.exit(1)
+
+    runtime_config_path = _write_runtime_config(base_dir, args.anytxt_url)
+    print(f"[+] Runtime config updated: {runtime_config_path}")
 
     if not _mcporter_register(python_exe, server_path, mcporter_config):
         sys.exit(1)

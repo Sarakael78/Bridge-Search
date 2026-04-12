@@ -2,6 +2,9 @@
   "_security_warning": "Copy to config/bridge-search.config.json or set BRIDGE_SEARCH_CONFIG. Keys starting with _ are ignored.",
   "_profile": "Windows filename search via Voidtools Everything (es.exe) only. No AnyTXT HTTP, no WSL find/grep. Use locate_file_or_folder with target_env \"windows\".",
   "version": 1,
+  "service": {
+    "anytxt_url": "http://127.0.0.1:9921/search"
+  },
   "security": {
     "path_denylist": "default",
     "custom_restricted_prefixes": [],

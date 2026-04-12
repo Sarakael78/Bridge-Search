@@ -21,7 +21,7 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 2. Verify Python 3.10+ and the `mcp` package are available (prefer **`./install.sh`** from the repo root on Debian/Ubuntu WSL—it installs missing `python3`/`pip`/`venv` via `apt` when needed, then runs **`setup_skill.py --venv`**; otherwise run **`python3 scripts/setup_skill.py --venv`**; add **`--dev`** as needed; **`--skip-checks`** if backends exclude Windows services). If **`sudo`** prompts for a password, the human must run **`./install.sh`** locally.
 3. Confirm Windows-side prerequisites match **`backends`** in **`config/bridge-search.config.json`** (defaults: Everything + AnyTXT):
    - Voidtools Everything is installed and running (if **`backends.everything`**).
-   - AnyTXT Searcher is installed and the **HTTP Search Service** is enabled on port **9921** (if **`backends.anytxt`**; see `bridge_tools.py` for the request URL).
+   - AnyTXT Searcher is installed and the **HTTP Search Service** is enabled on the configured URL (default **`http://127.0.0.1:9921/search`**) if **`backends.anytxt`**.
    - Optional: `curl http://127.0.0.1:9921/` or rely on **`setup_skill.py`** post-install probes.
 4. **Tool-Only Enforcement:**
    - **DO NOT** call `es.exe` or `grep` directly via `run_shell_command` if the MCP server can be started.
@@ -38,9 +38,12 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 - **Bridge-Only Execution:** Use `manage_file`, `map_directory`, `locate_file_or_folder`, and `locate_content_inside_files` for all operations. Do not hand-roll path conversions or shell commands.
 - **Encoding & Quoting:** The bridge tools handle Windows path quoting and `cp1252` encoding. Manual `run_shell_command` calls are likely to fail on paths with spaces or special characters.
 - **AnyTXT is a Service:** Treat AnyTXT as a networked local service. If search fails, debug the service state or port **9921**, not the local filesystem.
+- **Structured results:** All bridge tools return **`success`**, **`results`**, **`errors`**, **`warnings`**, and **`meta`**. Issues include stable machine-readable **`code`** fields. A clean zero-hit search is **not** an error.
 - **Privacy & Noise:** Ignore `AppData`, browser profiles, `node_modules`, and caches unless explicitly instructed otherwise.
 - **Path policy:** Reads, writes, `map_directory`, and WSL grep roots honor the same **denylist** (resolved paths under `/etc`, `/mnt/c/Windows`, `/usr`, `/var`, etc. are blocked). Optional **`BRIDGE_SEARCH_ALLOWED_PREFIXES`** (`:`-separated) and config **`allowed_prefixes`** restrict file operations to those prefixes and, when set, **filter search tool result rows** (Everything/`find`, WSL `grep`, AnyTXT) to matching paths.
 - **Confirmation flag:** `is_confirmed` is an **agent workflow** toggle—not authorization, not cryptographic proof of human approval, and **not a substitute for OS-level approval**. All **writes** and **deletes** still require it so the model explicitly opts in.
+- **Safer file mutations:** `manage_file` will not overwrite existing destinations on copy/move unless `overwrite=True`, refuses source==destination and directory-into-itself operations, and refuses deletion of filesystem root or the current home directory.
+- **Encoding & symlinks:** `manage_file(read)` tries common text encodings (`utf-8`, BOM variants, `utf-16`, `cp1252`) before failing. Mutating operations (`write`, `copy`, `move`, `mkdir`) are blocked on symlink paths; if you really mean the target, resolve and pass the real path explicitly. `delete` removes the symlink itself.
 - **WSL grep default root:** Empty `wsl_search_path` uses **`$HOME`**. Grep from **`/`** needs **`allow_grep_from_filesystem_root`** in `config/bridge-search.config.json` or **`BRIDGE_SEARCH_ALLOW_ROOT_GREP=1`**.
 - **Config file:** Optional **`config/bridge-search.config.json`** (see `config/bridge-search.config.example.json`) adjusts denylist strength, confirmation flags, grep-from-root, and resource caps without editing Python. Example files include **`_security_warning`**: relaxing settings is **at your own risk** (see README for what can go wrong).
 

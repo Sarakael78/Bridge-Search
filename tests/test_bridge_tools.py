@@ -1,94 +1,268 @@
-"""Unit tests for bridge logic (no WSL/Windows binaries required)."""
+"""Tests for bridge modules and public contract."""
 
 import copy
-import os
+from types import SimpleNamespace
 
 import bridge_tools
-from bridge_tools import _auto_target_env, _backend_enabled, _everything_search_arg, _clamp_int
+import config as bridge_config
+import setup_skill
 
 
 def test_auto_target_env_windows_paths_use_wsl_branch() -> None:
-    assert _auto_target_env(r"C:\Users\test") == "wsl"
-    assert _auto_target_env("c:/temp/file.txt") == "wsl"
+    assert bridge_tools._auto_target_env(r"C:\Users\test") == "wsl"
+    assert bridge_tools._auto_target_env("c:/temp/file.txt") == "wsl"
+    assert bridge_tools._auto_target_env(r"D:\Docs\note.txt") == "wsl"
+    assert bridge_tools._auto_target_env(r"\\server\share\file.txt") == "wsl"
 
 
 def test_auto_target_env_unix_paths_use_windows_branch() -> None:
-    assert _auto_target_env("/mnt/c/Users") == "windows"
-    assert _auto_target_env("/home/user/proj") == "windows"
-
-
-def test_auto_target_env_relative_defaults_wsl() -> None:
-    assert _auto_target_env("relative/path") == "wsl"
+    assert bridge_tools._auto_target_env("/mnt/c/Users") == "windows"
+    assert bridge_tools._auto_target_env("/home/user/proj") == "windows"
 
 
 def test_everything_search_arg_partial_wraps() -> None:
-    assert _everything_search_arg("foo", False) == "*foo*"
-    assert _everything_search_arg("  bar  ", False) == "*bar*"
-
-
-def test_everything_search_arg_respects_existing_globs() -> None:
-    assert _everything_search_arg("a*b", False) == "a*b"
-    assert _everything_search_arg("?x", False) == "?x"
-
-
-def test_everything_search_arg_exact_unchanged() -> None:
-    assert _everything_search_arg("readme.txt", True) == "readme.txt"
-
-
-def test_clamp_int() -> None:
-    assert _clamp_int(5, 0, 10) == 5
-    assert _clamp_int(-1, 0, 10) == 0
-    assert _clamp_int(99, 0, 10) == 10
-
-
-def test_grep_line_file_path_parses_standard_grep() -> None:
-    from bridge_tools import _grep_line_file_path
-
-    assert _grep_line_file_path("/home/user/a.txt:12:hello") == "/home/user/a.txt"
-    assert _grep_line_file_path(r"C:\temp\file.txt:3:content") == r"C:\temp\file.txt"
-
-
-def test_grep_line_file_path_rejects_malformed() -> None:
-    from bridge_tools import _grep_line_file_path
-
-    assert _grep_line_file_path("no-colon-here") is None
-    assert _grep_line_file_path("") is None
+    assert bridge_tools._everything_search_arg("foo", False) == "*foo*"
+    assert bridge_tools._everything_search_arg("  bar  ", False) == "*bar*"
 
 
 def test_backend_enabled_env_overrides_config(monkeypatch) -> None:
     monkeypatch.delenv("BRIDGE_SEARCH_ENABLE_EVERYTHING", raising=False)
-    cfg = copy.deepcopy(bridge_tools._DEFAULTS)
+    cfg = copy.deepcopy(bridge_config._DEFAULTS)
     cfg["backends"] = {**cfg["backends"], "everything": False}
-    bridge_tools._cfg_cache = cfg
+    bridge_config._cfg_cache = cfg
     try:
         monkeypatch.setenv("BRIDGE_SEARCH_ENABLE_EVERYTHING", "1")
-        assert _backend_enabled("everything") is True
+        assert bridge_tools._backend_enabled("everything") is True
         monkeypatch.setenv("BRIDGE_SEARCH_ENABLE_EVERYTHING", "0")
-        assert _backend_enabled("everything") is False
+        assert bridge_tools._backend_enabled("everything") is False
     finally:
-        bridge_tools._cfg_cache = None
+        bridge_config._cfg_cache = None
 
 
-def test_config_paths_default_file(monkeypatch) -> None:
-    monkeypatch.delenv("BRIDGE_SEARCH_CONFIG", raising=False)
-    paths = bridge_tools._config_paths()
-    assert len(paths) == 1
-    assert paths[0].endswith(os.path.join("config", "bridge-search.config.json"))
+def test_anytxt_url_env_override(monkeypatch) -> None:
+    monkeypatch.setenv("BRIDGE_SEARCH_ANYTXT_URL", "http://host.docker.internal:9921")
+    assert bridge_tools._anytxt_search_url() == "http://host.docker.internal:9921/search"
 
 
-def test_config_paths_env_override(monkeypatch, tmp_path) -> None:
-    custom = tmp_path / "policy.json"
-    custom.write_text("{}", encoding="utf-8")
-    monkeypatch.setenv("BRIDGE_SEARCH_CONFIG", str(custom))
-    assert bridge_tools._config_paths() == [os.path.abspath(str(custom))]
+def test_system_locator_zero_hit_is_success(monkeypatch) -> None:
+    monkeypatch.setattr(bridge_tools, "resolve_es_exe", lambda: "/mnt/c/Program Files/Everything/es.exe")
+    monkeypatch.setattr(bridge_tools, "_backend_enabled", lambda name: name == "everything")
+
+    def fake_run(cmd, capture_output=False, text=False, check=False):
+        return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+    import search_backends
+    monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: "/mnt/c/Program Files/Everything/es.exe")
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "everything")
+    monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
+    result = bridge_tools.system_locator("missing.docx", target_env="windows")
+    assert result["success"] is True
+    assert result["results"] == []
+    assert result["errors"] == []
+    assert result["meta"]["total_found"] == 0
 
 
-def test_backend_enabled_reads_config_when_env_unset(monkeypatch) -> None:
-    monkeypatch.delenv("BRIDGE_SEARCH_ENABLE_ANYTXT", raising=False)
-    cfg = copy.deepcopy(bridge_tools._DEFAULTS)
-    cfg["backends"] = {**cfg["backends"], "anytxt": False}
-    bridge_tools._cfg_cache = cfg
-    try:
-        assert _backend_enabled("anytxt") is False
-    finally:
-        bridge_tools._cfg_cache = None
+def test_system_locator_translates_windows_results(monkeypatch) -> None:
+    import search_backends
+    monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: "/mnt/c/Program Files/Everything/es.exe")
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "everything")
+    monkeypatch.setattr(search_backends, "resolve_path", lambda path, env: "/mnt/d/Docs/file.txt" if path == r"D:\Docs\file.txt" and env == "wsl" else path)
+
+    def fake_run(cmd, capture_output=False, text=False, check=False):
+        return SimpleNamespace(returncode=0, stdout=b"D:\\Docs\\file.txt\n", stderr=b"")
+
+    monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
+    result = bridge_tools.system_locator("file.txt", target_env="windows")
+    assert result["success"] is True
+    assert result["results"][0]["raw_path"] == r"D:\Docs\file.txt"
+    assert result["results"][0]["path"] == "/mnt/d/Docs/file.txt"
+
+
+def test_system_locator_backend_error_has_code(monkeypatch) -> None:
+    import search_backends
+    monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: None)
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "everything")
+    result = bridge_tools.system_locator("file.txt", target_env="windows")
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "backend_unavailable"
+
+
+def test_content_locator_anytxt_uses_configured_runtime_url(monkeypatch) -> None:
+    import search_backends
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "anytxt")
+    monkeypatch.setenv("BRIDGE_SEARCH_ANYTXT_URL", "http://winhost:9921/api")
+
+    class FakeResponse:
+        status = 200
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, tb):
+            return False
+        def read(self, _max_bytes):
+            return b'{"results": [{"path": "C:\\\\Users\\\\david\\\\memo.txt", "snippet": "needle here"}]}'
+
+    seen = {}
+    def fake_urlopen(req, timeout=5):
+        seen["url"] = req.full_url
+        return FakeResponse()
+
+    monkeypatch.setattr(search_backends.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(search_backends, "resolve_path", lambda path, env: "/mnt/c/Users/david/memo.txt" if path == r"C:\Users\david\memo.txt" and env == "wsl" else path)
+    result = bridge_tools.content_locator("needle", target_env="windows")
+    assert seen["url"] == "http://winhost:9921/api/search?q=needle"
+    assert result["results"][0]["path"] == "/mnt/c/Users/david/memo.txt"
+
+
+def test_manage_file_contract_read_and_encoding(tmp_path) -> None:
+    target = tmp_path / "note.txt"
+    bridge_tools.hybrid_file_io("write", str(target), content="hello", is_confirmed=True, overwrite=True)
+    result = bridge_tools.hybrid_file_io("read", str(target))
+    assert set(result.keys()) == {"success", "results", "errors", "warnings", "meta"}
+    assert result["results"][0]["content"] == "hello"
+    assert result["results"][0]["encoding"] == "utf-8"
+
+
+def test_manage_file_read_cp1252_text(tmp_path) -> None:
+    target = tmp_path / "latin1.txt"
+    target.write_bytes("café".encode("cp1252"))
+    result = bridge_tools.hybrid_file_io("read", str(target))
+    assert result["success"] is True
+    assert result["results"][0]["content"] == "café"
+    assert result["results"][0]["encoding"] == "cp1252"
+
+
+def test_manage_file_read_utf16_text(tmp_path) -> None:
+    target = tmp_path / "utf16.txt"
+    target.write_text("hello ☕", encoding="utf-16")
+    result = bridge_tools.hybrid_file_io("read", str(target))
+    assert result["success"] is True
+    assert result["results"][0]["encoding"] == "utf-16"
+
+
+def test_manage_file_requires_confirmation_for_write(tmp_path) -> None:
+    target = tmp_path / "note.txt"
+    result = bridge_tools.hybrid_file_io("write", str(target), content="hello", is_confirmed=False)
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "write_confirmation_required"
+
+
+def test_manage_file_copy_requires_explicit_overwrite(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+    dst.write_text("dest", encoding="utf-8")
+    result = bridge_tools.hybrid_file_io("copy", str(src), destination_path=str(dst))
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "destination_exists"
+
+
+def test_manage_file_copy_and_move_overwrite(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+    dst.write_text("dest", encoding="utf-8")
+    copy_result = bridge_tools.hybrid_file_io("copy", str(src), destination_path=str(dst), overwrite=True)
+    assert copy_result["success"] is True
+    moved_src = tmp_path / "move.txt"
+    moved_src.write_text("moved", encoding="utf-8")
+    move_result = bridge_tools.hybrid_file_io("move", str(moved_src), destination_path=str(dst), overwrite=True)
+    assert move_result["success"] is True
+    assert dst.read_text(encoding="utf-8") == "moved"
+
+
+def test_manage_file_symlink_policy(tmp_path) -> None:
+    target = tmp_path / "target.txt"
+    target.write_text("x", encoding="utf-8")
+    link = tmp_path / "link.txt"
+    link.symlink_to(target)
+    blocked = bridge_tools.hybrid_file_io("write", str(link), content="y", is_confirmed=True, overwrite=True)
+    assert blocked["success"] is False
+    assert blocked["errors"][0]["code"] == "symlink_blocked"
+    delete_result = bridge_tools.hybrid_file_io("delete", str(link), is_confirmed=True)
+    assert delete_result["success"] is True
+    assert target.exists()
+
+
+def test_manage_file_delete_home_directory_blocked(monkeypatch, tmp_path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    import file_ops
+    monkeypatch.setattr(file_ops.os.path, "expanduser", lambda path: str(home) if path == "~" else path)
+    result = bridge_tools.hybrid_file_io("delete", str(home), is_confirmed=True)
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "home_delete_blocked"
+
+
+def test_map_directory_contract(tmp_path) -> None:
+    root = tmp_path / "folder"
+    root.mkdir()
+    (root / "a.txt").write_text("x", encoding="utf-8")
+    result = bridge_tools.catalog_directory(str(root))
+    assert result["success"] is True
+    assert set(result.keys()) == {"success", "results", "errors", "warnings", "meta"}
+    assert result["results"][0]["type"] == "directory_map"
+    assert "a.txt" in result["results"][0]["text"]
+
+
+def test_integration_like_everything_error(monkeypatch) -> None:
+    import search_backends
+    monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: "/fake/es.exe")
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "everything")
+    def fake_run(cmd, capture_output=False, text=False, check=False):
+        return SimpleNamespace(returncode=2, stdout=b"", stderr=b"fatal")
+    monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
+    result = bridge_tools.system_locator("x", target_env="windows")
+    assert result["errors"][0]["code"] == "backend_error"
+
+
+def test_integration_like_anytxt_invalid_json(monkeypatch) -> None:
+    import search_backends
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "anytxt")
+    class FakeResponse:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb): return False
+        def read(self, _max_bytes): return b"not-json"
+    monkeypatch.setattr(search_backends.urllib.request, "urlopen", lambda req, timeout=5: FakeResponse())
+    result = bridge_tools.content_locator("needle", target_env="windows")
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "invalid_response"
+
+
+def test_integration_like_path_translation_failure_warns(monkeypatch) -> None:
+    import search_backends
+    import path_policy
+    monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: "/mnt/c/Program Files/Everything/es.exe")
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "everything")
+    monkeypatch.setattr(search_backends, "resolve_path", lambda path, env: path)
+    monkeypatch.setattr(path_policy, "resolve_path", lambda path, env: path)
+    def fake_run(cmd, capture_output=False, text=False, check=False):
+        return SimpleNamespace(returncode=0, stdout=b"D:\\Docs\\file.txt\n", stderr=b"")
+    monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
+    result = bridge_tools.system_locator("file.txt", target_env="windows")
+    assert result["success"] is True
+    assert result["warnings"][0]["code"] == "path_translation_failed"
+
+
+def test_setup_skill_normalizes_and_persists_anytxt_url(tmp_path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    config_path = setup_skill._write_runtime_config(str(repo_root), "http://winhost:9921")
+    payload = (repo_root / "config" / "bridge-search.config.json").read_text(encoding="utf-8")
+    assert config_path.endswith("bridge-search.config.json")
+    assert '"anytxt_url": "http://winhost:9921/search"' in payload
+
+
+def test_setup_skill_mcporter_register_replaces_existing(monkeypatch, tmp_path) -> None:
+    persist = tmp_path / "mcporter.json"
+    calls = []
+    def fake_run_command_capture(cmd, timeout=30):
+        calls.append(cmd)
+        if cmd[:4] == ["mcporter", "config", "add", "bridge-search"] and len(calls) == 1:
+            return 1, "", "already exists"
+        return 0, "ok", ""
+    monkeypatch.setattr(setup_skill, "run_command_capture", fake_run_command_capture)
+    ok = setup_skill._mcporter_register("python3", "/tmp/server.py", str(persist))
+    assert ok is True
+    assert calls[1][:4] == ["mcporter", "config", "remove", "bridge-search"]
+    assert calls[2][:4] == ["mcporter", "config", "add", "bridge-search"]

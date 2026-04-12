@@ -2,6 +2,9 @@
   "_security_warning": "Copy to config/bridge-search.config.json or set BRIDGE_SEARCH_CONFIG. Keys starting with _ are ignored.",
   "_profile": "Windows full-text search via AnyTXT HTTP only. No Everything (es.exe), no WSL find/grep. Filename lookup on Windows is unavailable—use locate_content_inside_files with target_env \"windows\" for indexed content; use WSL paths + enable backends if you need find/grep.",
   "version": 1,
+  "service": {
+    "anytxt_url": "http://127.0.0.1:9921/search"
+  },
   "security": {
     "path_denylist": "default",
     "custom_restricted_prefixes": [],

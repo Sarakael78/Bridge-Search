@@ -2,6 +2,9 @@
   "_security_warning": "Copy to config/bridge-search.config.json or set BRIDGE_SEARCH_CONFIG. Keys starting with _ are ignored.",
   "_profile": "Both Windows indexers: Everything for filenames (locate_file_or_folder) and AnyTXT for full-text (locate_content_inside_files). WSL find/grep disabled—enable wsl_find/wsl_grep in a merged config if you need Linux-side search too.",
   "version": 1,
+  "service": {
+    "anytxt_url": "http://127.0.0.1:9921/search"
+  },
   "security": {
     "path_denylist": "default",
     "custom_restricted_prefixes": [],

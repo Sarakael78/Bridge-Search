@@ -103,9 +103,115 @@ Bridge Search equips your AI with the following capabilities:
 - **`map_directory`:** Generates hierarchical, paginated directory maps to understand project structures.
 - **`manage_file`:** Safely read, write, move, or delete files across the OS boundary with automatic path translation and policy checks.
 
+### `manage_file` safety rules
+
+`manage_file` is stricter than a raw shell wrapper:
+
+- write and delete still require `is_confirmed=True` when confirmation gates are enabled
+- copy and move will **not** overwrite an existing destination unless `overwrite=True`
+- copy and move refuse source and destination paths that resolve to the same location
+- copy and move refuse to place a directory inside itself
+- delete refuses filesystem root and the current user's home directory
+- reads try several common text encodings (`utf-8`, `utf-16`, `cp1252`) before giving up
+- write/copy/move/mkdir are blocked on symlink paths, while delete removes the symlink itself rather than following it
+- file operations use Python filesystem APIs instead of shelling out to `cp`, `mv`, or `rm -rf`
+
+### Unified response contract
+
+All four tools return the same top-level payload shape:
+
+- `success`
+- `results`
+- `errors`
+- `warnings`
+- `meta`
+
+Errors and warnings include a stable machine-readable `code`, so callers do not need to parse English prose.
+
+Important:
+
+- a zero-hit search is a valid outcome, so it returns `success: true` with `results: []`
+- when Windows paths come back from Everything or AnyTXT, Bridge Search translates them to WSL paths when possible and preserves the original as `raw_path`
+- `manage_file(read)` returns decoded text in `results[0].content` and may include `results[0].encoding`
+
+### Concrete response examples
+
+**Successful filename search**
+
+```json
+{
+  "success": true,
+  "results": [
+    {
+      "type": "search_hit",
+      "path": "/mnt/c/Users/david/Documents/spec.pdf",
+      "raw_path": "C:\\Users\\david\\Documents\\spec.pdf",
+      "source": "windows-everything"
+    }
+  ],
+  "errors": [],
+  "warnings": [],
+  "meta": {
+    "total_found": 1
+  }
+}
+```
+
+**Zero-hit search**
+
+```json
+{
+  "success": true,
+  "results": [],
+  "errors": [],
+  "warnings": [],
+  "meta": {
+    "total_found": 0
+  }
+}
+```
+
+**Backend error response**
+
+```json
+{
+  "success": false,
+  "results": [],
+  "errors": [
+    {
+      "code": "backend_unavailable",
+      "message": "es.exe not found. Check Everything installation or Windows PATH.",
+      "source": "windows-everything"
+    }
+  ],
+  "warnings": [],
+  "meta": {}
+}
+```
+
+**Blocked `manage_file` mutation**
+
+```json
+{
+  "success": false,
+  "results": [],
+  "errors": [
+    {
+      "code": "write_confirmation_required",
+      "message": "WRITE BLOCKED. Pass is_confirmed=True after reviewing the target path.",
+      "path": "/mnt/c/Users/david/Documents/note.txt"
+    }
+  ],
+  "warnings": [],
+  "meta": {
+    "action": "write"
+  }
+}
+```
+
 ## 🚑 Troubleshooting
 
-- **AnyTXT connection errors/timeouts:** Open AnyTXT → Tool → HTTP Search Service. Ensure it is checked and the port matches the default (`9921`). Allow local traffic on port 9921 in your Windows Firewall. **WSL2 localhost quirk:** If your agent still cannot reach AnyTXT from inside WSL, `127.0.0.1` may resolve to the Linux container instead of Windows. Fix this by updating `--anytxt-url` to your Windows host (for example the IP in `/etc/resolv.conf`, or `http://$(hostname).local:9921/search`), or enable `networkingMode=mirrored` in `.wslconfig`.
+- **AnyTXT connection errors/timeouts:** Open AnyTXT → Tool → HTTP Search Service. Ensure it is checked and the URL matches your runtime config (`service.anytxt_url` in `config/bridge-search.config.json` or `BRIDGE_SEARCH_ANYTXT_URL`; default endpoint `http://127.0.0.1:9921/search`). Allow local traffic on port 9921 in your Windows Firewall. **WSL2 localhost quirk:** If your agent still cannot reach AnyTXT from inside WSL, `127.0.0.1` may resolve to the Linux container instead of Windows. Fix this by updating `--anytxt-url` during setup so it is persisted to runtime config, setting `BRIDGE_SEARCH_ANYTXT_URL`, or enabling `networkingMode=mirrored` in `.wslconfig`.
 - **Everything returns "es.exe not found":** Ensure Everything is installed, the background service is running, and `es.exe` is in your Windows `PATH`.
 - **`mcporter: command not found`:** Node.js or `mcporter` is missing. Install via npm: `npm install -g @steipete/mcporter`.
 - **Agent ignores tools:** If the agent drops context and tries to use `find /mnt/c/`, remind it: *"Do not use shell commands to search. Use your `bridge-search` MCP tools."*
@@ -121,7 +227,9 @@ We provide templates in the `config/` directory for common setups:
 - `bridge-search.config.everything-and-anytxt.example.json` — Both Windows indexers enabled.
 - `bridge-search.config.relaxed.json` — A deliberately relaxed profile.
 
-**AnyTXT HTTP Port:** By default, the bridge expects AnyTXT to broadcast on `http://127.0.0.1:9921/search`. Update this via the `--anytxt-url` flag during setup, or by editing `scripts/bridge_tools.py`.
+**AnyTXT HTTP URL:** By default, the bridge uses `http://127.0.0.1:9921/search`. Update this via the `--anytxt-url` flag during setup, by editing `config/bridge-search.config.json` (`service.anytxt_url`), or by setting `BRIDGE_SEARCH_ANYTXT_URL`.
+
+**Installer note:** `setup_skill.py` persists the AnyTXT runtime URL into `config/bridge-search.config.json`, and if a `bridge-search` mcporter entry already exists it will replace it instead of failing outright.
 
 ### Manual MCP Registration
 
@@ -145,7 +253,9 @@ For OpenClaw, manually add `bridge-search` to `alsoAllow` for your agent, then r
 | ----- | ----- |
 | **Path Denylist** | Paths are resolved via `realpath` and checked against a denylist of sensitive prefixes (e.g., `/etc`, `/mnt/c/Windows`, `/usr`). |
 | **Optional Allowlist** | Set `BRIDGE_SEARCH_ALLOWED_PREFIXES` (colon-separated absolute paths) in environment or `security.allowed_prefixes` in config. If set, operations and search results are strictly filtered to these folders. |
-| **Confirmation Flags** | All write/delete operations require the `is_confirmed=True` flag from the agent. *(Note: This is a workflow check, not OS-level authorisation).* |
+| **Confirmation Flags** | All write/delete operations require the `is_confirmed=True` flag from the agent by default. *(Note: This is a workflow check, not OS-level authorisation).* |
+| **Safer File Ops** | Copy/move require explicit overwrite opt-in, block self-targeting and copy-into-self mistakes, and delete refuses root and home-directory targets. |
+| **Encoding & Symlink Policy** | Text reads try common Windows/Unicode encodings before failing. Mutating operations are blocked on symlink paths so the agent must act on the resolved real path explicitly. |
 | **Search Root Limits** | WSL content/filename searches default to `$HOME`. Searching from `/` requires explicit opt-in via config keys like `security.allow_grep_from_filesystem_root`. |
 | **DoS Caps** | Directory listing, locator hits, and AnyTXT HTTP responses have hard-coded caps (e.g., `limits.max_catalog_lines`, `limits.anytxt_max_response_bytes`). |
 
