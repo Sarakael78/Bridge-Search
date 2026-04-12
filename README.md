@@ -1,17 +1,22 @@
 # WSL Windows Bridge
 
-A high-performance "Nexus" for cross-OS search and file management between WSL2 and Windows. This repository provides a **Skill** for behavioral guardrails and an **MCP Server** for technical execution.
+A high-performance bridge for cross-OS search and file management between WSL2 and Windows. This repository provides a **Skill** for behavioral guardrails and an **MCP Server** for technical execution.
 
 ---
 
-## ⚡ Zero-Touch Installation (Recommended)
+## ⚡ Zero-Touch Installation (Any MCP Agent)
 
-If you are using **OpenClaw**, you don't need to run any manual commands in WSL. Just follow these two steps:
+If you are using **OpenClaw, Claude Desktop, Cursor, or Windsurf**, you can automate the setup. 
 
-1.  **Windows Setup**: Ensure you have [Everything](https://www.voidtools.com/) and [AnyTXT](https://anytxt.net/) installed and running on Windows (see details below).
-2.  **Tell OpenClaw**: Copy the link below, give it to your OpenClaw agent, and say: **"Install this skill: https://github.com/Sarakael78/wsl-windows-bridge"**
+1.  **Windows Setup**: Ensure [Everything](https://www.voidtools.com/) and [AnyTXT](https://anytxt.net/) (port 9921) are running on Windows.
+2.  **Tell your Agent**: Give it this link: **`https://github.com/Sarakael78/wsl-windows-bridge`** and say:
+    **"Clone this and run `python3 scripts/setup_skill.py` to install."**
 
-OpenClaw will automatically clone the repo, install dependencies, register the MCP server, and update its own configuration for you.
+The agent will autonomously:
+-   Clone the repository.
+-   Install Python dependencies.
+-   Register the server.
+-   Auto-configure the environment.
 
 ---
 
@@ -32,16 +37,17 @@ The **WSL Windows Bridge** solves the 9P filesystem performance bottleneck in WS
 
 ### 🚀 Agent-Led Installation (Automated)
 
-**Directive to Agents**: If you are an OpenClaw agent tasked with installing this skill, you can automate the entire setup process by running the following command from the repository root:
+**Directive to Agents**: If you are a coding assistant (Claude, Cursor, Codex, Windsurf, or OpenClaw), you can perform the entire setup by executing:
 
 ```bash
 python3 scripts/setup_skill.py
 ```
 
 This script will:
-1.  Install the `mcp` Python package via `pip --user`.
-2.  Register the MCP server with your `mcporter` configuration.
-3.  Automatically update `~/.openclaw/openclaw.json` to add `wsl-windows-bridge` to the `main` agent's `alsoAllow` list.
+1.  Install the `mcp` Python package.
+2.  Register the MCP server via `mcporter`.
+3.  Auto-configure OpenClaw (`openclaw.json`) if detected.
+4.  Provide a JSON snippet for manual addition to other agent configs (Claude/Cursor/Windsurf).
 
 ---
 
@@ -169,11 +175,6 @@ This bridge enforces strict behavioral rules for agents:
 1.  **The Absolute Zero Rule**: If Everything (`es.exe`) returns no hits, **STOP**. Do not fallback to a slow brute-force `find` or `grep` on `/mnt/c/`.
 2.  **Service-Only Content Search**: AnyTXT is treated as a networked service on port **9921**. Do not search for local binaries.
 3.  **Path Translation**: All tools use `wslpath` internally; never hand-roll path conversions.
-
-
-## 📜 License
-MIT
-his bridge is designed to be the primary Windows-side discovery provider for legal and research workflows (e.g., `legal-local-research`).
 
 ## 📜 License
 MIT

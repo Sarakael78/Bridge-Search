@@ -37,12 +37,11 @@ def setup():
 
     # 3. Update openclaw.json
     if os.path.exists(config_path):
-        print("[*] Updating openclaw.json permissions...")
+        print("[*] OpenClaw detected. Updating openclaw.json permissions...")
         try:
             with open(config_path, "r") as f:
                 data = json.load(f)
-            
-            # Find the 'main' agent and add to alsoAllow
+
             updated = False
             for agent in data.get("agents", {}).get("list", []):
                 if agent.get("id") == "main":
@@ -51,19 +50,32 @@ def setup():
                     if skill_name not in allow_list:
                         allow_list.append(skill_name)
                         updated = True
-            
+
             if updated:
                 with open(config_path, "w") as f:
                     json.dump(data, f, indent=2)
-                print("[+] Successfully added skill to 'main' agent allowlist.")
-            else:
-                print("[~] Skill already allowed in openclaw.json.")
+                print("[+] Successfully added to OpenClaw 'main' agent allowlist.")
         except Exception as e:
             print(f"[!] Failed to update openclaw.json: {e}")
+    else:
+        print("[~] OpenClaw config not found. Skipping OpenClaw-specific setup.")
 
+    # 4. Final Instructions
     print("\n✅ Setup complete!")
-    print(f"Agents can now use tools from the '{skill_name}' skill.")
-    print("Remember to restart the OpenClaw Gateway if it is currently running.")
+    print("-" * 30)
+    print(f"Server Path: {server_path}")
+    print("-" * 30)
+    print("\nFor Claude Desktop / Cursor / Windsurf, add this to your MCP config:")
+    print(json.dumps({
+        "mcpServers": {
+            "wsl-bridge": {
+                "command": "python3",
+                "args": [server_path]
+            }
+        }
+    }, indent=2))
+    print("\nAgents can now use tools from 'wsl-windows-bridge'.")
+
 
 if __name__ == "__main__":
     setup()
