@@ -13,20 +13,20 @@ import scripts.setup_skill as setup_skill
 
 
 def test_auto_target_env_windows_paths_use_wsl_branch() -> None:
-    assert bridge_tools._auto_target_env(r"C:\Users\test") == "wsl"
-    assert bridge_tools._auto_target_env("c:/temp/file.txt") == "wsl"
-    assert bridge_tools._auto_target_env(r"D:\Docs\note.txt") == "wsl"
-    assert bridge_tools._auto_target_env(r"\\server\share\file.txt") == "wsl"
+    assert path_policy.auto_target_env(r"C:\Users\test") == "wsl"
+    assert path_policy.auto_target_env("c:/temp/file.txt") == "wsl"
+    assert path_policy.auto_target_env(r"D:\Docs\note.txt") == "wsl"
+    assert path_policy.auto_target_env(r"\\server\share\file.txt") == "wsl"
 
 
 def test_auto_target_env_unix_paths_use_windows_branch() -> None:
-    assert bridge_tools._auto_target_env("/mnt/c/Users") == "windows"
-    assert bridge_tools._auto_target_env("/home/user/proj") == "windows"
+    assert path_policy.auto_target_env("/mnt/c/Users") == "windows"
+    assert path_policy.auto_target_env("/home/user/proj") == "windows"
 
 
 def test_everything_search_arg_partial_wraps() -> None:
-    assert bridge_tools._everything_search_arg("foo", False) == "*foo*"
-    assert bridge_tools._everything_search_arg("  bar  ", False) == "*bar*"
+    assert search_backends._everything_search_arg("foo", False) == "*foo*"
+    assert search_backends._everything_search_arg("  bar  ", False) == "*bar*"
 
 
 def test_backend_enabled_env_overrides_config(monkeypatch) -> None:
@@ -36,21 +36,21 @@ def test_backend_enabled_env_overrides_config(monkeypatch) -> None:
     bridge_config._cfg_cache = cfg
     try:
         monkeypatch.setenv("BRIDGE_SEARCH_ENABLE_EVERYTHING", "1")
-        assert bridge_tools._backend_enabled("everything") is True
+        assert bridge_tools.backend_enabled("everything") is True
         monkeypatch.setenv("BRIDGE_SEARCH_ENABLE_EVERYTHING", "0")
-        assert bridge_tools._backend_enabled("everything") is False
+        assert bridge_tools.backend_enabled("everything") is False
     finally:
         bridge_config._cfg_cache = None
 
 
 def test_anytxt_url_env_override(monkeypatch) -> None:
     monkeypatch.setenv("BRIDGE_SEARCH_ANYTXT_URL", "http://host.docker.internal:9921")
-    assert bridge_tools._anytxt_search_url() == "http://host.docker.internal:9921/search"
+    assert bridge_tools.anytxt_search_url() == "http://host.docker.internal:9921/search"
 
 
 def test_system_locator_zero_hit_is_success(monkeypatch) -> None:
     monkeypatch.setattr(bridge_tools, "resolve_es_exe", lambda: "/mnt/c/Program Files/Everything/es.exe")
-    monkeypatch.setattr(bridge_tools, "_backend_enabled", lambda name: name == "everything")
+    monkeypatch.setattr(bridge_tools, "backend_enabled", lambda name: name == "everything")
 
     def fake_run(cmd, capture_output=False, text=False, check=False, **kwargs):
         return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")

@@ -301,7 +301,7 @@ def catalog_directory(
     limit: int = 100,
     offset: int = 0,
 ) -> Dict[str, Any]:
-    """Build a paginated directory map and return it in the standard response shape."""
+    """Build a paginated directory map using os.scandir for high performance."""
     cap_depth = lim("max_depth")
     cap_limit = lim("max_limit")
     cap_offset = lim("max_offset")
@@ -312,46 +312,81 @@ def catalog_directory(
     effective_env = "wsl" if target_env == "auto" else target_env
     resolved_path = resolve_path(target_path, effective_env)
     meta: Dict[str, Any] = {"target_path": target_path, "resolved_path": resolved_path}
+    
     if not is_path_allowed(target_path, effective_env):
         return error_response(code="path_blocked", message="Path not allowed for directory mapping.", path=target_path, meta=meta)
     if not os.path.isdir(resolved_path):
         return error_response(code="not_found", message="Directory not found.", path=target_path, meta=meta)
+    
     if include_extensions:
         include_extensions = [ext.lower() if ext.startswith(".") else f".{ext.lower()}" for ext in include_extensions]
+
     catalog_output: List[str] = []
-    base_level = resolved_path.rstrip(os.sep).count(os.sep)
     truncated = False
-    try:
-        for root, dirs, files in os.walk(resolved_path):
-            if len(catalog_output) >= cap_cat:
-                truncated = True
-                break
-            current_level = root.count(os.sep)
-            depth = current_level - base_level
-            if depth > max_depth:
-                dirs[:] = []
-                continue
-            if exclude_hidden:
-                dirs[:] = [d for d in dirs if not d.startswith(".")]
-            indent = "  " * depth
-            folder_name = os.path.basename(root) or root
-            catalog_output.append(f"{indent}📂 {folder_name}/")
-            for file in files:
-                if len(catalog_output) >= cap_cat:
-                    truncated = True
-                    break
-                if exclude_hidden and file.startswith("."):
-                    continue
-                if include_extensions:
-                    _, ext = os.path.splitext(file)
-                    if ext.lower() not in include_extensions:
+
+    def walk_level(current_path: str, depth: int) -> None:
+        nonlocal truncated
+        if truncated:
+            return
+
+        try:
+            with os.scandir(current_path) as it:
+                entries = sorted(it, key=lambda e: e.name.lower())
+                
+                dirs_to_process = []
+                files_to_process = []
+                for entry in entries:
+                    if exclude_hidden and entry.name.startswith("."):
                         continue
-                catalog_output.append(f"{indent}  📄 {file}")
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            dirs_to_process.append(entry)
+                        elif entry.is_file(follow_symlinks=False):
+                            if include_extensions:
+                                _, ext = os.path.splitext(entry.name)
+                                if ext.lower() not in include_extensions:
+                                    continue
+                            files_to_process.append(entry)
+                    except OSError:
+                        continue
+
+                indent = "  " * depth
+                # Files at this level
+                for f in files_to_process:
+                    if len(catalog_output) >= cap_cat:
+                        truncated = True
+                        break
+                    catalog_output.append(f"{indent}  📄 {f.name}")
+                
+                # Dirs at this level, and recurse
+                if depth < max_depth:
+                    for d in dirs_to_process:
+                        if len(catalog_output) >= cap_cat:
+                            truncated = True
+                            break
+                        catalog_output.append(f"{indent}  📂 {d.name}/")
+                        walk_level(d.path, depth + 1)
+
+        except OSError:
+            pass
+
+    try:
+        # Start the recursive scandir walk
+        root_name = os.path.basename(resolved_path.rstrip(os.sep)) or resolved_path
+        catalog_output.append(f"📂 {root_name}/")
+        walk_level(resolved_path, 0)
+
         paginated_output = catalog_output[offset : offset + limit]
-        meta.update({"total_found": len(catalog_output), "has_more": offset + limit < len(catalog_output), "offset": offset, "limit": limit})
+        meta.update({
+            "total_found": len(catalog_output),
+            "has_more": offset + limit < len(catalog_output),
+            "offset": offset,
+            "limit": limit
+        })
         if truncated:
             meta["truncated"] = True
             meta["note"] = f"Listing capped at {cap_cat} lines; narrow the path or max_depth."
+        
         return success_response(results=[{"type": "directory_map", "path": resolved_path, "lines": paginated_output, "text": "\n".join(paginated_output)}], meta=meta)
     except OSError as exc:
         return error_response(code="catalog_failed", message=str(exc), path=target_path, meta=meta)
