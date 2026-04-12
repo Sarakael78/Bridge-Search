@@ -79,7 +79,48 @@ mcporter config add wsl-bridge \
   --description "WSL-to-Windows search bridge (Everything/AnyTXT)"
 ```
 
-#### **Manual Integration (Claude Desktop / Windsurf)**
+---
+
+### 4. Enabling for OpenClaw Agents
+
+To allow an OpenClaw agent to use this bridge, you must ensure the skill is "allowed" in your `openclaw.json` config.
+
+#### **A. Add to `alsoAllow`**
+Find your agent configuration in `~/.openclaw/openclaw.json` and add `wsl-windows-bridge` to the `alsoAllow` list:
+
+```json
+{
+  "agents": {
+    "list": [
+      {
+        "id": "main",
+        "tools": {
+          "alsoAllow": [
+            "wsl-windows-bridge",
+            "..."
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+
+#### **B. Verify Skill Availability**
+Run the following command to confirm the skill is recognized and enabled:
+```bash
+openclaw skills list | grep wsl-windows-bridge
+```
+
+#### **C. Reload Agent**
+If your OpenClaw Gateway is already running, you may need to restart it to pick up the new skill configuration:
+```bash
+openclaw gateway restart
+```
+
+---
+
+### 5. Manual Integration (Claude Desktop / Windsurf)
 Add the following to your `mcp_config.json`:
 ```json
 {
