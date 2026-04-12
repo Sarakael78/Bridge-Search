@@ -112,7 +112,15 @@ The MCP process runs with your user privileges. Controls are **defense in depth*
 
 ### Configuration file (relax or tighten policy)
 
-Place **`bridge-search.config.json`** in the **repository root** (next to `README.md`), or set **`BRIDGE_SEARCH_CONFIG`** to an absolute path. Copy from **`bridge-search.config.example.json`** (defaults match built-in behavior). For a deliberately **relaxed** profile, see **`bridge-search.config.relaxed.json`** and merge only the keys you need.
+Place **`bridge-search.config.json`** in the **repository root** (next to `README.md`), or set **`BRIDGE_SEARCH_CONFIG`** to an absolute path. Copy from **`bridge-search.config.example.json`** (defaults match built-in behavior; enables all four backends). Profile-specific examples:
+
+| File | Use case |
+|------|----------|
+| **`bridge-search.config.everything-only.example.json`** | Voidtools **Everything** for filenames only (no AnyTXT, no WSL find/grep). |
+| **`bridge-search.config.anytxt-only.example.json`** | **AnyTXT** HTTP for full-text only (no `es.exe`, no WSL search helpers). |
+| **`bridge-search.config.everything-and-anytxt.example.json`** | **Both** Windows indexers; WSL `find`/`grep` off (merge keys if you need Linux-side search). |
+
+For a deliberately **relaxed** profile, see **`bridge-search.config.relaxed.json`** and merge only the keys you need.
 
 Alternate config locations (optional): **`wsl-windows-search-bridge.config.json`**, **`WSL_WINDOWS_SEARCH_BRIDGE_CONFIG`**, **`wsl-bridge.config.json`**, **`WSL_BRIDGE_CONFIG`**.
 
