@@ -56,6 +56,7 @@ def locate_file_or_folder(
     """
     Filename search: Everything (es.exe) on Windows; optional WSL find (HOME by default, not full '/').
     Use target_env 'everywhere' for both, 'wsl' for Linux-side find only, 'windows' for Everything only.
+    Enable/disable Voidtools vs WSL find globally via bridge-search.config.json backends.everything / backends.wsl_find (or BRIDGE_SEARCH_ENABLE_EVERYTHING / BRIDGE_SEARCH_ENABLE_WSL_FIND).
     limit/offset are capped (500 / 50000); results may truncate at a high water mark.
     When allowed_prefixes (config) or BRIDGE_SEARCH_ALLOWED_PREFIXES is set, returned path rows are filtered to paths under those prefixes (same policy as file operations).
     is_confirmed on other tools is a workflow flag for the agent, not cryptographic authorization or a substitute for OS-level approval.
@@ -73,6 +74,7 @@ def locate_content_inside_files(
 ) -> dict[str, Any]:
     """
     Search for text inside files (grep on WSL, AnyTXT HTTP on Windows).
+    Enable/disable WSL grep vs AnyTXT via backends.wsl_grep / backends.anytxt (or BRIDGE_SEARCH_ENABLE_WSL_GREP / BRIDGE_SEARCH_ENABLE_ANYTXT).
     Empty wsl_search_path searches under HOME. Grep from '/' requires BRIDGE_SEARCH_ALLOW_ROOT_GREP=1 (legacy: WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_GREP=1 or WSL_BRIDGE_ALLOW_ROOT_GREP=1).
     When allowed_prefixes (config) or BRIDGE_SEARCH_ALLOWED_PREFIXES is set, result lines are filtered to paths under those prefixes (Everything/find rows, WSL grep hits, and AnyTXT rows).
     is_confirmed on other tools is a workflow flag for the agent, not cryptographic authorization or a substitute for OS-level approval.

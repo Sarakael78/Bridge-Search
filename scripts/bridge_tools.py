@@ -30,6 +30,12 @@ _DEFAULTS: Dict[str, Any] = {
         "max_locator_results": 5000,
         "anytxt_max_response_bytes": 2097152,
     },
+    "backends": {
+        "everything": True,
+        "anytxt": True,
+        "wsl_find": True,
+        "wsl_grep": True,
+    },
 }
 
 _RESTRICTED_DEFAULT: Tuple[str, ...] = (
@@ -117,6 +123,28 @@ def get_bridge_config(reload: bool = False) -> Dict[str, Any]:
 def _lim(key: str) -> int:
     lim = get_bridge_config().get("limits", _DEFAULTS["limits"])
     return int(lim.get(key, _DEFAULTS["limits"][key]))
+
+
+_BACKEND_ENV: Dict[str, str] = {
+    "everything": "BRIDGE_SEARCH_ENABLE_EVERYTHING",
+    "anytxt": "BRIDGE_SEARCH_ENABLE_ANYTXT",
+    "wsl_find": "BRIDGE_SEARCH_ENABLE_WSL_FIND",
+    "wsl_grep": "BRIDGE_SEARCH_ENABLE_WSL_GREP",
+}
+
+
+def _backend_enabled(name: str) -> bool:
+    """Config backends.* with optional env override (BRIDGE_SEARCH_ENABLE_* = 1/0, true/false, on/off)."""
+    env_key = _BACKEND_ENV.get(name)
+    if env_key:
+        raw = os.environ.get(env_key, "").strip().lower()
+        if raw in ("0", "false", "no", "off"):
+            return False
+        if raw in ("1", "true", "yes", "on"):
+            return True
+    defaults = _DEFAULTS.get("backends", {})
+    cfg = get_bridge_config().get("backends", defaults)
+    return bool(cfg.get(name, defaults.get(name, True)))
 
 
 def _restricted_prefixes() -> Tuple[str, ...]:
@@ -568,6 +596,19 @@ def system_locator(
     limit = _clamp_int(limit, 1, cap_limit)
     offset = _clamp_int(offset, 0, cap_offset)
 
+    wants_win = target_env in ("windows", "everywhere")
+    wants_wsl = target_env in ("wsl", "everywhere")
+    run_everything = wants_win and _backend_enabled("everything")
+    run_wsl_find = wants_wsl and _backend_enabled("wsl_find")
+    if not run_everything and not run_wsl_find:
+        return {
+            "success": False,
+            "message": "No filename search backend enabled for this target_env. "
+            "Set backends.everything and/or backends.wsl_find in bridge-search.config.json, "
+            "or BRIDGE_SEARCH_ENABLE_EVERYTHING / BRIDGE_SEARCH_ENABLE_WSL_FIND. "
+            "Use target_env 'windows' for Everything-only, 'wsl' for WSL find-only, 'everywhere' for both.",
+        }
+
     results: List[str] = []
     truncated = False
 
@@ -584,7 +625,7 @@ def system_locator(
                 results.append(s)
 
     # Prefer Windows (Everything) first when searching both — matches skill workflow.
-    if target_env in ["windows", "everywhere"]:
+    if run_everything:
         try:
             es_exe = resolve_es_exe()
             if not es_exe:
@@ -601,7 +642,7 @@ def system_locator(
         except OSError as e:
             results.append(f"[Windows Error]: {str(e)}")
 
-    if target_env in ["wsl", "everywhere"] and len(results) < cap_loc:
+    if run_wsl_find and len(results) < cap_loc:
         try:
             pattern = query if exact_match else f"*{query}*"
             search_root = _wsl_filename_find_root()
@@ -620,7 +661,11 @@ def system_locator(
 
     total_items = len(results)
     paginated_results = results[offset : offset + limit]
-    meta: Dict[str, Any] = {"total_found": total_items, "has_more": offset + limit < total_items}
+    meta: Dict[str, Any] = {
+        "total_found": total_items,
+        "has_more": offset + limit < total_items,
+        "filename_backends": {"everything": run_everything, "wsl_find": run_wsl_find},
+    }
     if truncated or total_items >= cap_loc:
         meta["truncated"] = True
         meta["note"] = f"Combined results capped at {cap_loc} paths."
@@ -668,8 +713,21 @@ def content_locator(
 
     eff_root = wsl_search_path.strip() or os.path.expanduser("~")
 
+    wants_wsl_grep = target_env in ("wsl", "everywhere")
+    wants_anytxt = target_env in ("windows", "everywhere")
+    run_wsl_grep = wants_wsl_grep and _backend_enabled("wsl_grep")
+    run_anytxt_http = wants_anytxt and _backend_enabled("anytxt")
+    if not run_wsl_grep and not run_anytxt_http:
+        return {
+            "success": False,
+            "message": "No content-search backend enabled for this target_env. "
+            "Set backends.wsl_grep and/or backends.anytxt in bridge-search.config.json, "
+            "or BRIDGE_SEARCH_ENABLE_WSL_GREP / BRIDGE_SEARCH_ENABLE_ANYTXT. "
+            "Use target_env 'windows' for AnyTXT-only, 'wsl' for WSL grep-only, 'everywhere' for both.",
+        }
+
     results: List[str] = []
-    if target_env in ["wsl", "everywhere"]:
+    if run_wsl_grep:
         try:
             ok, msg_or_canon = _wsl_grep_root_allowed(eff_root)
             if not ok:
@@ -699,7 +757,7 @@ def content_locator(
         except OSError as e:
             results.append(f"[WSL Grep Error]: {str(e)}")
 
-    if target_env in ["windows", "everywhere"]:
+    if run_anytxt_http:
         try:
             url = f"http://127.0.0.1:9921/search?q={urllib.parse.quote(query)}"
             req = urllib.request.Request(url)
@@ -727,7 +785,11 @@ def content_locator(
         return {"success": False, "message": "No content found."}
 
     total_items = len(results)
-    meta: Dict[str, Any] = {"total_found": total_items, "has_more": offset + limit < total_items}
+    meta: Dict[str, Any] = {
+        "total_found": total_items,
+        "has_more": offset + limit < total_items,
+        "content_backends": {"wsl_grep": run_wsl_grep, "anytxt": run_anytxt_http},
+    }
     if total_items >= cap_loc:
         meta["truncated"] = True
         meta["note"] = f"Results capped at {cap_loc} lines."

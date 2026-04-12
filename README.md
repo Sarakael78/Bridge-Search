@@ -70,6 +70,21 @@ If you relax the defaults, realistic outcomes include:
 
 Only relax settings on machines and user accounts you trust; prefer tightening with **`allowed_prefixes`** when possible.
 
+### Search backends (Everything, AnyTXT, WSL)
+
+Use **`backends`** in **`bridge-search.config.json`** to run **Voidtools Everything** only, **AnyTXT** only, **both** on Windows, and/or the WSL **`find`** / **`grep`** helpers:
+
+| Goal | Set in config |
+|------|----------------|
+| Everything filename search only | `backends.everything: true`, `backends.wsl_find: false` — use **`target_env: "windows"`** with `locate_file_or_folder`. |
+| WSL filename (`find`) only | `backends.wsl_find: true`, `backends.everything: false` — use **`target_env: "wsl"`**. |
+| Both filename engines | Defaults (`everything` + `wsl_find` true) and **`target_env: "everywhere"`**. |
+| AnyTXT content search only | `backends.anytxt: true`, `backends.wsl_grep: false` — use **`target_env: "windows"`** with `locate_content_inside_files`. |
+| WSL grep content only | `backends.wsl_grep: true`, `backends.anytxt: false` — use **`target_env: "wsl"`**. |
+| Both content engines | Defaults and **`target_env: "everywhere"`**. |
+
+Optional environment overrides (per-process): **`BRIDGE_SEARCH_ENABLE_EVERYTHING`**, **`BRIDGE_SEARCH_ENABLE_ANYTXT`**, **`BRIDGE_SEARCH_ENABLE_WSL_FIND`**, **`BRIDGE_SEARCH_ENABLE_WSL_GREP`** — set to **`1`** / **`0`**, **`true`** / **`false`**, or **`on`** / **`off`**.
+
 ### Pinned dependencies
 
 Runtime dependencies are pinned in **`requirements.txt`** (used by `setup_skill.py` and recommended manual installs). For reproducible deployments you can snapshot your environment with `pip freeze > requirements.lock` and install from that file in controlled environments.
@@ -85,6 +100,10 @@ Runtime dependencies are pinned in **`requirements.txt`** (used by `setup_skill.
 | `security.allow_wsl_locator_from_filesystem_root` | If `true`, WSL `locate_file_or_folder` may use `find /` (expensive). Default is HOME-scoped only; same opt-in as **`BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR=1`**. |
 | `security.require_confirm_for_writes` / `require_confirm_for_deletes` | Set to `false` only on trusted hosts to skip `is_confirmed` checks. |
 | `limits.*` | Raise or lower caps (`max_limit`, `max_offset`, `max_depth`, `max_catalog_lines`, `max_locator_results`, `anytxt_max_response_bytes`). |
+| `backends.everything` | If `false`, skip Voidtools **`es.exe`** in `locate_file_or_folder` (see Search backends above). |
+| `backends.anytxt` | If `false`, skip AnyTXT HTTP in `locate_content_inside_files`. |
+| `backends.wsl_find` | If `false`, skip WSL **`find`** in `locate_file_or_folder`. |
+| `backends.wsl_grep` | If `false`, skip WSL **`grep`** in `locate_content_inside_files`. |
 
 Keys whose names start with `_` are ignored (documentation only).
 
@@ -224,7 +243,7 @@ Add the following to your `mcp_config.json`:
   "mcpServers": {
     "bridge-search": {
       "command": "python3",
-      "args": ["/absolute/path/to/Bridge-Search/scripts/server.py"]
+      "args": ["/absolute/path/to/wsl-windows-search/scripts/server.py"]
     }
   }
 }

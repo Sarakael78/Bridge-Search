@@ -17,5 +17,11 @@
     "max_catalog_lines": 10000,
     "max_locator_results": 5000,
     "anytxt_max_response_bytes": 2097152
+  },
+  "backends": {
+    "everything": true,
+    "anytxt": true,
+    "wsl_find": true,
+    "wsl_grep": true
   }
 }

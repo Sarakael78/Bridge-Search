@@ -1,6 +1,9 @@
 """Unit tests for bridge logic (no WSL/Windows binaries required)."""
 
-from bridge_tools import _auto_target_env, _everything_search_arg, _clamp_int
+import copy
+
+import bridge_tools
+from bridge_tools import _auto_target_env, _backend_enabled, _everything_search_arg, _clamp_int
 
 
 def test_auto_target_env_windows_paths_use_wsl_branch() -> None:
@@ -49,3 +52,28 @@ def test_grep_line_file_path_rejects_malformed() -> None:
 
     assert _grep_line_file_path("no-colon-here") is None
     assert _grep_line_file_path("") is None
+
+
+def test_backend_enabled_env_overrides_config(monkeypatch) -> None:
+    monkeypatch.delenv("BRIDGE_SEARCH_ENABLE_EVERYTHING", raising=False)
+    cfg = copy.deepcopy(bridge_tools._DEFAULTS)
+    cfg["backends"] = {**cfg["backends"], "everything": False}
+    bridge_tools._cfg_cache = cfg
+    try:
+        monkeypatch.setenv("BRIDGE_SEARCH_ENABLE_EVERYTHING", "1")
+        assert _backend_enabled("everything") is True
+        monkeypatch.setenv("BRIDGE_SEARCH_ENABLE_EVERYTHING", "0")
+        assert _backend_enabled("everything") is False
+    finally:
+        bridge_tools._cfg_cache = None
+
+
+def test_backend_enabled_reads_config_when_env_unset(monkeypatch) -> None:
+    monkeypatch.delenv("BRIDGE_SEARCH_ENABLE_ANYTXT", raising=False)
+    cfg = copy.deepcopy(bridge_tools._DEFAULTS)
+    cfg["backends"] = {**cfg["backends"], "anytxt": False}
+    bridge_tools._cfg_cache = cfg
+    try:
+        assert _backend_enabled("anytxt") is False
+    finally:
+        bridge_tools._cfg_cache = None
