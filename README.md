@@ -170,9 +170,10 @@ This bridge enforces strict behavioral rules for agents:
 2.  **Service-Only Content Search**: AnyTXT is treated as a networked service on port **9921**. Do not search for local binaries.
 3.  **Path Translation**: All tools use `wslpath` internally; never hand-roll path conversions.
 
-## 🧩 Integration
 
-This bridge is designed to be the primary Windows-side discovery provider for legal and research workflows (e.g., `legal-local-research`).
+## 📜 License
+MIT
+his bridge is designed to be the primary Windows-side discovery provider for legal and research workflows (e.g., `legal-local-research`).
 
 ## 📜 License
 MIT
