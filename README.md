@@ -14,9 +14,8 @@ Bridge Search bypasses the file system bottleneck entirely. It uses Model Contex
 
 It handles all the messy cross-OS path translations automatically, giving your agent two immediate superpowers:
 
-* ⚡ **Voidtools Everything:** Instant, millisecond file and folder lookups.
-
-* 🔎 **AnyTXT:** Lightning-fast full-text search across documents, code, and PDFs.
+- ⚡ **Voidtools Everything:** Instant, millisecond file and folder lookups.
+- 🔎 **AnyTXT:** Lightning-fast full-text search across documents, code, and PDFs.
 
 Stop letting your AI waste tokens and time on brute-force scanning.
 
@@ -26,9 +25,8 @@ Stop letting your AI waste tokens and time on brute-force scanning.
 
 To get blazing-fast search speeds, you need the underlying Windows indexers installed and running. (Defaults assume both are available):
 
-* [**Voidtools Everything**](https://www.voidtools.com/)**:** Install and ensure the background service is running (`es.exe` on PATH or under `C:\Program Files\Everything\`).
-
-* [**AnyTXT Searcher**](https://anytxt.net/)**:** Install it, open the app, **navigate to Tool → HTTP Search Service, and enable it.**
+- **[Voidtools Everything](https://www.voidtools.com/):** Install and ensure the background service is running (`es.exe` on PATH or under `C:\Program Files\Everything\`).
+- **[AnyTXT Searcher](https://anytxt.net/):** Install it, open the app, then go to **Tool → HTTP Search Service** and enable it.
 
 *(Note: If you only want to use one of these, or just want to use WSL native search, Bridge Search is fully configurable. See Advanced Configuration below).*
 
@@ -59,13 +57,10 @@ chmod +x install.sh
 
 As an AI using these tools, you **must** obey the following behavioural logic to save time and compute:
 
-1.  **Never brute-force `/mnt/c`:** Do not use `find` or `grep` on Windows mounts. Use the `locate_file_or_folder` and `locate_content_inside_files` tools.
-
-2.  **The Absolute Zero Rule:** When `target_env` is set to `windows`, if the `locate_file_or_folder` tool (using Everything) returns **zero hits**, you must **STOP**. Do not fall back to slow Linux `find`/`grep` commands on `/mnt/c/`. A zero-hit from the Everything indexer means the file definitively does not exist.
-
-3.  **Path Translation:** Use bridge tools or `wslpath` internally; do not hand-roll path conversions.
-
-4.  **AnyTXT is HTTP-only:** Requests use the URL pattern in `scripts/bridge_tools.py` (host `127.0.0.1`, port `9921` by default). There is no AnyTXT CLI binary in this workflow.
+1. **Never brute-force `/mnt/c`:** Do not use `find` or `grep` on Windows mounts. Use the `locate_file_or_folder` and `locate_content_inside_files` tools.
+2. **The Absolute Zero Rule:** When `target_env` is set to `windows`, if the `locate_file_or_folder` tool (using Everything) returns **zero hits**, you must **STOP**. Do not fall back to slow Linux `find`/`grep` commands on `/mnt/c/`. A zero-hit from the Everything indexer means the file does not exist.
+3. **Path translation:** Use bridge tools or `wslpath` internally; do not hand-roll path conversions.
+4. **AnyTXT is HTTP-only:** Requests use the URL pattern in `scripts/bridge_tools.py` (host `127.0.0.1`, port `9921` by default). There is no AnyTXT CLI binary in this workflow.
 
 ## 🏗️ Architecture Flow
 
@@ -89,23 +84,17 @@ sequenceDiagram
 
 Bridge Search equips your AI with the following capabilities:
 
-  * **`locate_file_or_folder`**: Instantly finds files by name. Uses `es.exe` on Windows (`target_env=windows`). Use `everywhere` to combine with WSL `find` under `$HOME`.
-
-  * **`locate_content_inside_files`**: Instantly searches inside documents (PDFs, Word, text). Uses AnyTXT's HTTP API on Windows and `grep` when targeting WSL paths.
-
-  * **`map_directory`**: Generates hierarchical, paginated directory maps to understand project structures.
-
-  * **`manage_file`**: Safely read, write, move, or delete files across the OS boundary with automatic path translation and policy checks.
+- **`locate_file_or_folder`:** Instantly finds files by name. Uses `es.exe` on Windows (`target_env=windows`). Use `everywhere` to combine with WSL `find` under `$HOME`.
+- **`locate_content_inside_files`:** Instantly searches inside documents (PDFs, Word, text). Uses AnyTXT's HTTP API on Windows and `grep` when targeting WSL paths.
+- **`map_directory`:** Generates hierarchical, paginated directory maps to understand project structures.
+- **`manage_file`:** Safely read, write, move, or delete files across the OS boundary with automatic path translation and policy checks.
 
 ## 🚑 Troubleshooting
 
-  * **AnyTXT connection errors/timeouts:** Open AnyTXT → Tool → HTTP Search Service. Ensure it is checked and the port matches the default (`9921`). Allow local traffic on port 9921 in your Windows Firewall. **WSL2 Localhost Quirk:** If your agent still cannot reach AnyTXT from inside WSL, it may be resolving `127.0.0.1` to the Linux container instead of Windows. Fix this by updating the `--anytxt-url` flag to use your Windows host IP (e.g., `http://$(hostname).local:9921/search` or the IP found in `/etc/resolv.conf`), or by enabling `networkingMode=mirrored` in your `.wslconfig`.
-
-  * **Everything returns "es.exe not found":** Ensure Everything is installed, the background service is running, and `es.exe` is in your Windows System PATH.
-
-  * **`mcporter: command not found`:** Node.js or `mcporter` is missing. Install via npm: `npm install -g @steipete/mcporter`.
-
-  * **Agent ignores tools:** If the agent drops context and tries to use `find /mnt/c/`, remind it: *"Do not use shell commands to search. Use your `bridge-search` MCP tools."*
+- **AnyTXT connection errors/timeouts:** Open AnyTXT → Tool → HTTP Search Service. Ensure it is checked and the port matches the default (`9921`). Allow local traffic on port 9921 in your Windows Firewall. **WSL2 localhost quirk:** If your agent still cannot reach AnyTXT from inside WSL, `127.0.0.1` may resolve to the Linux container instead of Windows. Fix this by updating `--anytxt-url` to your Windows host (for example the IP in `/etc/resolv.conf`, or `http://$(hostname).local:9921/search`), or enable `networkingMode=mirrored` in `.wslconfig`.
+- **Everything returns "es.exe not found":** Ensure Everything is installed, the background service is running, and `es.exe` is in your Windows `PATH`.
+- **`mcporter: command not found`:** Node.js or `mcporter` is missing. Install via npm: `npm install -g @steipete/mcporter`.
+- **Agent ignores tools:** If the agent drops context and tries to use `find /mnt/c/`, remind it: *"Do not use shell commands to search. Use your `bridge-search` MCP tools."*
 
 ## ⚙️ Advanced Configuration & Backends
 
@@ -113,13 +102,10 @@ You do not have to use both Everything and AnyTXT. Set `backends` in `config/bri
 
 We provide templates in the `config/` directory for common setups:
 
-  * `bridge-search.config.everything-only.example.json`: Windows filename search only.
-
-  * `bridge-search.config.anytxt-only.example.json`: Windows content search only.
-
-  * `bridge-search.config.everything-and-anytxt.example.json`: Both Windows indexers enabled.
-
-  * `bridge-search.config.relaxed.json`: A deliberately relaxed profile.
+- `bridge-search.config.everything-only.example.json` — Windows filename search only.
+- `bridge-search.config.anytxt-only.example.json` — Windows content search only.
+- `bridge-search.config.everything-and-anytxt.example.json` — Both Windows indexers enabled.
+- `bridge-search.config.relaxed.json` — A deliberately relaxed profile.
 
 **AnyTXT HTTP Port:** By default, the bridge expects AnyTXT to broadcast on `http://127.0.0.1:9921/search`. Update this via the `--anytxt-url` flag during setup, or by editing `scripts/bridge_tools.py`.
 
@@ -155,13 +141,10 @@ For OpenClaw, manually add `bridge-search` to `alsoAllow` for your agent, then r
 
 If you encounter a bug or have a feature request, please [open an issue](https://github.com/Sarakael78/Bridge-Search/issues). To contribute code:
 
-1.  Clone the repository.
-
-2.  Install developer dependencies: `python3 scripts/setup_skill.py --venv --dev`
-
-3.  Make your changes and run the test suite: `python3 -m pytest`
-
-4.  Submit a Pull Request.
+1. Clone the repository.
+2. Install developer dependencies: `python3 scripts/setup_skill.py --venv --dev`
+3. Make your changes and run the test suite: `python3 -m pytest`
+4. Submit a pull request.
 
 ## 📝 Licence
 
