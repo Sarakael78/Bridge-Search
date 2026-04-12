@@ -15,7 +15,24 @@ The **WSL Windows Bridge** solves the 9P filesystem performance bottleneck in WS
 - `map_directory`: Generate hierarchical directory maps with pagination.
 - `manage_file`: Robust cross-OS file operations (read, write, move, delete) with built-in path translation.
 
-## 📦 Installation
+---
+
+### 🚀 Agent-Led Installation (Automated)
+
+**Directive to Agents**: If you are an OpenClaw agent tasked with installing this skill, you can automate the entire setup process by running the following command from the repository root:
+
+```bash
+python3 scripts/setup_skill.py
+```
+
+This script will:
+1.  Install the `mcp` Python package via `pip --user`.
+2.  Register the MCP server with your `mcporter` configuration.
+3.  Automatically update `~/.openclaw/openclaw.json` to add `wsl-windows-bridge` to the `main` agent's `alsoAllow` list.
+
+---
+
+## 📦 Manual Installation
 
 Follow these steps to establish the bridge between your WSL2 environment and the Windows host.
 
