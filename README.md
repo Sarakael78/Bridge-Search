@@ -9,8 +9,7 @@ A high-performance bridge for cross-OS search and file management between WSL2 a
 If you are using **OpenClaw, Claude Desktop, Cursor, or Windsurf**, you can automate the setup. 
 
 1.  **Windows Setup**: Ensure [Everything](https://www.voidtools.com/) and [AnyTXT](https://anytxt.net/) (port 9921) are running on Windows.
-2.  **Tell your Agent**: Give it this link: **`https://github.com/Sarakael78/wsl-windows-search-bridge`** and say:
-    **"Clone this and run `python3 scripts/setup_skill.py` to install."**
+2.  **Tell your Agent**: Clone this repo `https://github.com/Sarakael78/wsl-windows-search-bridge` and install it by running `python3 scripts/setup_skill.py`
 
 The agent will autonomously:
 -   Clone the repository.
