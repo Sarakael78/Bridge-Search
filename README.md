@@ -1,6 +1,6 @@
 # Bridge Search
 
-Fast **filename** and **full-text** search across WSL2 and Windows without brute-force scanning **`/mnt/c`**. This repo ships an **OpenClaw Skill** (behavioral guardrails; other MCP hosts can use the server alone) and an **MCP server** (`scripts/server.py`) that talks to **Voidtools Everything** and **AnyTXT** over the host boundary.
+Fast **filename** and **full-text** search across WSL2 and Windows without brute-force scanning **`/mnt/c`**. This repo ships an **[OpenClaw](https://openclaw.ai/) Skill** (behavioral guardrails; other MCP hosts can use the server alone) and an **MCP server** (`scripts/server.py`) that talks to **[Voidtools Everything](https://www.voidtools.com/)** and **[AnyTXT Searcher](https://anytxt.net/)** over the host boundary.
 
 **Repository:** [`Sarakael78/Bridge-Search`](https://github.com/Sarakael78/Bridge-Search) — MCP / skill id **`bridge-search`**, optional policy file **`bridge-search.config.json`** (default checkout folder **`Bridge-Search`**).
 
