@@ -2,9 +2,9 @@
 
 A high-performance bridge for cross-OS search and file management between WSL2 and Windows. This repository provides a **Skill** for behavioral guardrails and an **MCP Server** for technical execution.
 
-**Same codebase — two names:** this GitHub repository is **`wsl-windows-search`** (clone URL and folder name follow that slug). The skill / MCP identifier is **`bridge-search`**; config files use the **`bridge-search.config.json`** prefix. Renaming the repo on GitHub to **`Bridge-Search`** is optional; if you do, run `git remote set-url` and update bookmarks.
+**Names:** GitHub repository **`Sarakael78/Bridge-Search`** (clone URL and default folder **`Bridge-Search`**). OpenClaw skill / MCP id **`bridge-search`**; local policy file **`bridge-search.config.json`**. The old repo name **`wsl-windows-search`** redirects on GitHub; update any saved clone URLs to the new one.
 
-**GitHub:** [`Sarakael78/wsl-windows-search`](https://github.com/Sarakael78/wsl-windows-search)
+**GitHub:** [`Sarakael78/Bridge-Search`](https://github.com/Sarakael78/Bridge-Search)
 
 ---
 
@@ -13,7 +13,7 @@ A high-performance bridge for cross-OS search and file management between WSL2 a
 If you are using **OpenClaw, Claude Desktop, Cursor, or Windsurf**, you can automate the setup.
 
 1.  **Windows Setup**: Ensure [Everything](https://www.voidtools.com/) and [AnyTXT](https://anytxt.net/) (port 9921) are running on Windows.
-2.  **Tell your Agent**: Give it this link: **`https://github.com/Sarakael78/wsl-windows-search`** and say:
+2.  **Tell your Agent**: Give it this link: **`https://github.com/Sarakael78/Bridge-Search`** and say:
     **"Clone this and run `python3 scripts/setup_skill.py` to install."**
 
 The agent will autonomously:
@@ -152,12 +152,15 @@ Follow these steps to establish the bridge between your WSL2 environment and the
 ### 2. WSL2 Setup
 
 #### **A. Clone the Repository**
-Clone this repository into your OpenClaw `skills/` directory (or any preferred location). The default checkout folder follows the GitHub repo name (currently **`wsl-windows-search`**). You may rename the folder to **`Bridge-Search`** locally or after renaming the repo on GitHub.
+Clone this repository into your OpenClaw `skills/` directory (or any preferred location). The default checkout folder is **`Bridge-Search`** (matches the GitHub repo name).
 ```bash
 cd ~/.openclaw/workspace/skills
-git clone https://github.com/Sarakael78/wsl-windows-search.git
-cd wsl-windows-search
+git clone https://github.com/Sarakael78/Bridge-Search.git
+cd Bridge-Search
 ```
+
+If you already cloned under the old name **`wsl-windows-search`**, point **`origin`** at the new URL and pull:  
+`git remote set-url origin https://github.com/Sarakael78/Bridge-Search.git` then `git pull`. You can rename the folder to **`Bridge-Search`** to match (optional).
 
 #### **B. Install Python Dependencies**
 The bridge requires Python 3.10+ and the dependencies pinned in **`requirements.txt`** (also declared under `[project]` in `pyproject.toml`). For running tests, install **`requirements-dev.txt`**. It is recommended to use a virtual environment or install globally for your user:
@@ -245,7 +248,7 @@ Add the following to your `mcp_config.json`:
   "mcpServers": {
     "bridge-search": {
       "command": "python3",
-      "args": ["/absolute/path/to/wsl-windows-search/scripts/server.py"]
+      "args": ["/absolute/path/to/Bridge-Search/scripts/server.py"]
     }
   }
 }
