@@ -1,8 +1,19 @@
 # Bridge Search 🌉
 
-Searching your Windows files (`/mnt/c`) from inside WSL2 is notoriously slow, and AI agents (like OpenClaw, Claude Desktop, Cursor, or Windsurf) often time out, get stuck, or hallucinate when forced to brute-force search across the OS boundary using standard Linux commands.
+## The Problem
 
-**Bridge Search** solves this by connecting your AI agents directly to blazing-fast Windows-native search engines. It provides Model Context Protocol (MCP) tools that seamlessly translate paths and query **Voidtools Everything** (for instant file location) and **AnyTXT** (for instant full-text content search) over the host boundary.
+The OS boundary is a massive bottleneck. When AI agents (like OpenClaw, Cursor, or Claude) try to search Windows files (`/mnt/c`) from inside WSL2 using standard Linux commands, the results are disastrous. The search takes minutes, the agent times out, loses its context window, or simply hallucinates file paths to move on.
+
+## The Solution
+
+Bridge Search bypasses the file system bottleneck entirely. It uses Model Context Protocol (MCP) tools to connect your AI directly to the native, hyper-optimized search engines already running on your Windows host.
+
+It handles all the messy cross-OS path translations automatically, giving your agent two immediate superpowers:
+
+- **⚡ Voidtools Everything:** Instant, millisecond file and folder lookups.
+- **🔎 AnyTXT:** Lightning-fast full-text search across documents, code, and PDFs.
+
+Stop letting your AI waste tokens and time on brute-force scanning.
 
 ---
 
