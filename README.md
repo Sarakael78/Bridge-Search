@@ -2,6 +2,19 @@
 
 A high-performance "Nexus" for cross-OS search and file management between WSL2 and Windows. This repository provides a **Skill** for behavioral guardrails and an **MCP Server** for technical execution.
 
+---
+
+## ⚡ Zero-Touch Installation (Recommended)
+
+If you are using **OpenClaw**, you don't need to run any manual commands in WSL. Just follow these two steps:
+
+1.  **Windows Setup**: Ensure you have [Everything](https://www.voidtools.com/) and [AnyTXT](https://anytxt.net/) installed and running on Windows (see details below).
+2.  **Tell OpenClaw**: Copy the link below, give it to your OpenClaw agent, and say: **"Install this skill: https://github.com/Sarakael78/wsl-windows-bridge"**
+
+OpenClaw will automatically clone the repo, install dependencies, register the MCP server, and update its own configuration for you.
+
+---
+
 ## 🚀 Overview
 
 The **WSL Windows Bridge** solves the 9P filesystem performance bottleneck in WSL2 by leveraging native Windows indexed search tools:
