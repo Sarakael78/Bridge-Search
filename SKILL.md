@@ -14,7 +14,6 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 - `scripts/bridge_tools.py`: path translation, safe file operations, directory cataloging, filename search, and content search helpers.
 - `scripts/server.py`: FastMCP wrapper exposing the bridge tools over stdio.
 - `config/bridge-search.config.example.json`: optional JSON policy (copy to `config/bridge-search.config.json`; `BRIDGE_SEARCH_CONFIG` can point elsewhere — see README). Profile examples: **`config/bridge-search.config.everything-only.example.json`**, **`config/bridge-search.config.anytxt-only.example.json`**, **`config/bridge-search.config.everything-and-anytxt.example.json`**. Use **`backends`** for other combinations (e.g. WSL-only).
-- `references/setup_directive.md`: original full setup directive and source material.
 
 ## Workflow
 
@@ -61,4 +60,4 @@ If you catch yourself looking for an AnyTXT CLI, or repeating a slower search af
 
 ## When details matter
 
-Read `references/setup_directive.md` for the full original implementation notes and the embedded source copies of both Python files.
+Use **`README.md`** for install, troubleshooting, and security. Implementation details live in **`scripts/bridge_tools.py`** and **`scripts/server.py`** (those files are authoritative—do not rely on third-party copies of the bridge code).
