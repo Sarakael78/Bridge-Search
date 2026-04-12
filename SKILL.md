@@ -11,7 +11,7 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 
 - `scripts/bridge_tools.py`: path translation, safe file operations, directory cataloging, filename search, and content search helpers.
 - `scripts/server.py`: FastMCP wrapper exposing the bridge tools over stdio.
-- `bridge-search.config.example.json`: optional JSON policy (copy to `bridge-search.config.json` in the repo root to relax or tighten limits and path rules; `BRIDGE_SEARCH_CONFIG` can point elsewhere; legacy `wsl-windows-search-bridge.config.json` / `WSL_WINDOWS_SEARCH_BRIDGE_CONFIG` still work). Use **`backends`** to run Everything-only, AnyTXT-only, WSL find/grep only, or combinations (see README).
+- `bridge-search.config.example.json`: optional JSON policy (copy to `bridge-search.config.json`; `BRIDGE_SEARCH_CONFIG` can point elsewhere — see README). Use **`backends`** to run Everything-only, AnyTXT-only, WSL find/grep only, or combinations.
 - `references/setup_directive.md`: original full setup directive and source material.
 
 ## Workflow

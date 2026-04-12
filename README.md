@@ -2,9 +2,7 @@
 
 A high-performance bridge for cross-OS search and file management between WSL2 and Windows. This repository provides a **Skill** for behavioral guardrails and an **MCP Server** for technical execution.
 
-**Names:** GitHub repository **`Sarakael78/Bridge-Search`** (clone URL and default folder **`Bridge-Search`**). OpenClaw skill / MCP id **`bridge-search`**; local policy file **`bridge-search.config.json`**. The old repo name **`wsl-windows-search`** redirects on GitHub; update any saved clone URLs to the new one.
-
-**GitHub:** [`Sarakael78/Bridge-Search`](https://github.com/Sarakael78/Bridge-Search)
+Repository: [`Sarakael78/Bridge-Search`](https://github.com/Sarakael78/Bridge-Search) — skill / MCP id **`bridge-search`**, policy file **`bridge-search.config.json`** (default checkout folder **`Bridge-Search`**).
 
 ---
 
@@ -59,7 +57,7 @@ The MCP process runs with your user privileges. Controls are **defense in depth*
 
 Place **`bridge-search.config.json`** in the **repository root** (next to `README.md`), or set **`BRIDGE_SEARCH_CONFIG`** to an absolute path. Copy from **`bridge-search.config.example.json`** (defaults match built-in behavior). For a deliberately **relaxed** profile, see **`bridge-search.config.relaxed.json`** and merge only the keys you need.
 
-Legacy filenames and env vars still work when canonical ones are unset: **`wsl-windows-search-bridge.config.json`**, **`WSL_WINDOWS_SEARCH_BRIDGE_CONFIG`**, **`wsl-bridge.config.json`**, **`WSL_BRIDGE_CONFIG`**.
+Alternate config locations (optional): **`wsl-windows-search-bridge.config.json`**, **`WSL_WINDOWS_SEARCH_BRIDGE_CONFIG`**, **`wsl-bridge.config.json`**, **`WSL_BRIDGE_CONFIG`**.
 
 Each example JSON file includes a **`_security_warning`** field: read it before editing. **Changing security-related settings is at your own risk.** This project and its maintainers are **not responsible** for data loss, leaked secrets, account compromise, or unstable systems.
 
@@ -159,9 +157,6 @@ git clone https://github.com/Sarakael78/Bridge-Search.git
 cd Bridge-Search
 ```
 
-If you already cloned under the old name **`wsl-windows-search`**, point **`origin`** at the new URL and pull:  
-`git remote set-url origin https://github.com/Sarakael78/Bridge-Search.git` then `git pull`. You can rename the folder to **`Bridge-Search`** to match (optional).
-
 #### **B. Install Python Dependencies**
 The bridge requires Python 3.10+ and the dependencies pinned in **`requirements.txt`** (also declared under `[project]` in `pyproject.toml`). For running tests, install **`requirements-dev.txt`**. It is recommended to use a virtual environment or install globally for your user:
 ```bash
@@ -198,8 +193,6 @@ mcporter config add bridge-search \
   --description "WSL-to-Windows search bridge (Everything/AnyTXT)"
 ```
 
-If you previously registered **`wsl-windows-search-bridge`**, remove or replace that entry so only **`bridge-search`** is active.
-
 ---
 
 ### 4. Enabling for OpenClaw Agents
@@ -207,7 +200,7 @@ If you previously registered **`wsl-windows-search-bridge`**, remove or replace 
 To allow an OpenClaw agent to use this bridge, you must ensure the skill is "allowed" in your `openclaw.json` config.
 
 #### **A. Add to `alsoAllow`**
-Find your agent configuration in `~/.openclaw/openclaw.json` and add **`bridge-search`** to the `alsoAllow` list (replace **`wsl-windows-search-bridge`** if present):
+Find your agent configuration in `~/.openclaw/openclaw.json` and add **`bridge-search`** to the `alsoAllow` list:
 
 ```json
 {
