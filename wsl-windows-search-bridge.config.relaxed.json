@@ -1,0 +1,15 @@
+{
+  "_security_warning": "RELAXED PROFILE — for trusted hosts only. Merge selected keys into wsl-windows-search-bridge.config.json. See README for risks. Prefer allowed_prefixes instead of disabling denylist when possible.",
+  "version": 1,
+  "security": {
+    "path_denylist": "minimal",
+    "allow_grep_from_filesystem_root": true,
+    "allow_wsl_locator_from_filesystem_root": true,
+    "require_confirm_for_writes": false,
+    "require_confirm_for_deletes": false
+  },
+  "limits": {
+    "max_locator_results": 10000,
+    "anytxt_max_response_bytes": 4194304
+  }
+}

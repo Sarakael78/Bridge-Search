@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+
+# Local bridge policy (copy from wsl-windows-search-bridge.config.example.json)
+wsl-windows-search-bridge.config.json
+wsl-bridge.config.json
