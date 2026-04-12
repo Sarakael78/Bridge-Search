@@ -1,9 +1,9 @@
 ---
-name: windows-everything-anytxt
+name: wsl-windows-nexus
 description: Set up and operate the WSL2-to-Windows search and file bridge for Everything (`es.exe`), AnyTXT via its HTTP Search Service only, and `bridge_tools.py`. Use when working across `/mnt/c` and `C:\` paths, when you need fast Windows filename search, full-text file-content search on Windows, or when enabling the bundled `bridge_tools.py` and `server.py` MCP pair as a reusable bridge skill. Do not look for or rely on an AnyTXT CLI binary; in this workflow AnyTXT is HTTP-only.
 ---
 
-# Windows Everything AnyTXT
+# WSL Windows Nexus
 
 Use this skill to set up and run the MCP bridge stored in this skill's `scripts/` folder. This is the **authoritative** bridge for cross-OS search and file management.
 
