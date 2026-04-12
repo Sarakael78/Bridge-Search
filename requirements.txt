@@ -1,0 +1,2 @@
+# Pin runtime dependency; regenerate when upgrading: edit version and test.
+mcp==1.27.0

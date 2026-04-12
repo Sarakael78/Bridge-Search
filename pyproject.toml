@@ -1,0 +1,12 @@
+# wsl-windows-search-bridge — install runtime deps with: pip install -r requirements.txt
+# Tests: pip install -r requirements-dev.txt && python3 -m pytest
+
+[project]
+name = "wsl-windows-search-bridge"
+version = "0.0.0"
+requires-python = ">=3.10"
+dependencies = ["mcp==1.27.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["scripts"]
