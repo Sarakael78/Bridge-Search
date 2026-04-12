@@ -13,7 +13,7 @@ Fast **filename** and **full-text** search across WSL2 and Windows without brute
 For **OpenClaw, Claude Desktop, Cursor, Windsurf**, or any assistant that can run shell commands:
 
 1. On **Windows**, install what your [backends](#search-backends-everything-anytxt-wsl) need—at minimum see [Prerequisites (Windows)](#prerequisites-windows). Defaults assume **Everything** + **AnyTXT** are available.
-2. Give the agent this repo and one line, for example:  
+2. Give the agent the following instruction:  
    **Clone `https://github.com/Sarakael78/Bridge-Search` and run `python3 scripts/setup_skill.py`.**  
    Add flags if needed (see [Install (recommended)](#install-recommended)).
 3. Ensure **`mcporter`** is on **`PATH`** (see [Requirements](#requirements)), or plan to [register MCP manually](#advanced-manual-mcp-registration).
