@@ -78,6 +78,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="If openclaw is on PATH, run: openclaw gateway restart (may interrupt sessions).",
     )
+    p.add_argument(
+        "--openclaw-allowlist",
+        action="store_true",
+        help="Explicitly update ~/.openclaw/openclaw.json to add bridge-search to alsoAllow for the main agent.",
+    )
     return p.parse_args()
 
 
@@ -308,6 +313,13 @@ def _openclaw_allowlist(skill_name: str, config_path: str) -> None:
         print(f"[!] Failed to update openclaw.json: {e}")
 
 
+def _print_openclaw_manual_steps(skill_name: str, config_path: str) -> None:
+    print("[~] OpenClaw auto-allowlist is disabled by default.")
+    print(
+        f"[i] To enable manually, add `{skill_name}` to the relevant agent tools.alsoAllow in {config_path}, then run `openclaw gateway restart`."
+    )
+
+
 def _openclaw_verify() -> None:
     code, out, err = run_command_capture(["openclaw", "skills", "list"], timeout=45)
     if code != 0:
@@ -355,7 +367,10 @@ def setup(args: argparse.Namespace) -> None:
     if not _mcporter_register(python_exe, server_path, mcporter_config):
         sys.exit(1)
 
-    _openclaw_allowlist(skill_name, config_path)
+    if args.openclaw_allowlist:
+        _openclaw_allowlist(skill_name, config_path)
+    else:
+        _print_openclaw_manual_steps(skill_name, config_path)
 
     if not args.skip_checks:
         if not _health_checks(args.anytxt_url):
@@ -385,7 +400,7 @@ def setup(args: argparse.Namespace) -> None:
     print("\nAgents can now use tools from bridge-search.")
     print(
         "Tip: `python3 scripts/setup_skill.py --help` — "
-        "--venv, --dev, --skip-checks, --anytxt-url, --restart-gateway"
+        "--venv, --dev, --skip-checks, --anytxt-url, --restart-gateway, --openclaw-allowlist"
     )
 
 

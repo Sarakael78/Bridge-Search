@@ -1,5 +1,6 @@
 {
   "_security_warning": "Copy to config/bridge-search.config.json (or set BRIDGE_SEARCH_CONFIG). Keys starting with _ are ignored. Tighten security before relaxing anything.",
+  "_write_note": "manage_file(write) now replaces by default. Use write_mode='append' per request when you explicitly want append semantics.",
   "version": 1,
   "service": {
     "anytxt_url": "http://127.0.0.1:9921/search"
@@ -19,7 +20,8 @@
     "max_depth": 20,
     "max_catalog_lines": 10000,
     "max_locator_results": 5000,
-    "anytxt_max_response_bytes": 2097152
+    "anytxt_max_response_bytes": 2097152,
+    "command_timeout_seconds": 10
   },
   "backends": {
     "everything": true,

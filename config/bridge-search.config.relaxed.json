@@ -1,5 +1,6 @@
 {
   "_security_warning": "RELAXED PROFILE — for trusted hosts only. Merge selected keys into config/bridge-search.config.json. See README for risks. Prefer allowed_prefixes instead of disabling denylist when possible.",
+  "_write_note": "manage_file(write) still replaces by default. If a caller wants append semantics it must pass write_mode='append'.",
   "version": 1,
   "service": {
     "anytxt_url": "http://127.0.0.1:9921/search"
@@ -13,6 +14,7 @@
   },
   "limits": {
     "max_locator_results": 10000,
-    "anytxt_max_response_bytes": 4194304
+    "anytxt_max_response_bytes": 4194304,
+    "command_timeout_seconds": 20
   }
 }

@@ -1,11 +1,15 @@
 """Tests for bridge modules and public contract."""
 
 import copy
+import json
 from types import SimpleNamespace
 
-import bridge_tools
-import config as bridge_config
-import setup_skill
+from bridge_search import bridge_tools
+from bridge_search import config as bridge_config
+from bridge_search import file_ops
+from bridge_search import path_policy
+from bridge_search import search_backends
+import scripts.setup_skill as setup_skill
 
 
 def test_auto_target_env_windows_paths_use_wsl_branch() -> None:
@@ -48,10 +52,9 @@ def test_system_locator_zero_hit_is_success(monkeypatch) -> None:
     monkeypatch.setattr(bridge_tools, "resolve_es_exe", lambda: "/mnt/c/Program Files/Everything/es.exe")
     monkeypatch.setattr(bridge_tools, "_backend_enabled", lambda name: name == "everything")
 
-    def fake_run(cmd, capture_output=False, text=False, check=False):
+    def fake_run(cmd, capture_output=False, text=False, check=False, **kwargs):
         return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
 
-    import search_backends
     monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: "/mnt/c/Program Files/Everything/es.exe")
     monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "everything")
     monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
@@ -63,12 +66,12 @@ def test_system_locator_zero_hit_is_success(monkeypatch) -> None:
 
 
 def test_system_locator_translates_windows_results(monkeypatch) -> None:
-    import search_backends
     monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: "/mnt/c/Program Files/Everything/es.exe")
     monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "everything")
     monkeypatch.setattr(search_backends, "resolve_path", lambda path, env: "/mnt/d/Docs/file.txt" if path == r"D:\Docs\file.txt" and env == "wsl" else path)
+    monkeypatch.setattr(search_backends, "everything_supports_native_paging", lambda: False)
 
-    def fake_run(cmd, capture_output=False, text=False, check=False):
+    def fake_run(cmd, capture_output=False, text=False, check=False, **kwargs):
         return SimpleNamespace(returncode=0, stdout=b"D:\\Docs\\file.txt\n", stderr=b"")
 
     monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
@@ -79,7 +82,6 @@ def test_system_locator_translates_windows_results(monkeypatch) -> None:
 
 
 def test_system_locator_backend_error_has_code(monkeypatch) -> None:
-    import search_backends
     monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: None)
     monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "everything")
     result = bridge_tools.system_locator("file.txt", target_env="windows")
@@ -87,8 +89,54 @@ def test_system_locator_backend_error_has_code(monkeypatch) -> None:
     assert result["errors"][0]["code"] == "backend_unavailable"
 
 
+def test_system_locator_uses_everything_native_paging_when_supported(monkeypatch) -> None:
+    monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: "/mnt/c/Program Files/Everything/es.exe")
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "everything")
+    monkeypatch.setattr(search_backends, "everything_supports_native_paging", lambda: True)
+    seen = {}
+
+    payload = json.dumps(
+        [
+            {"filename": r"D:\Docs\one.txt"},
+            {"filename": r"D:\Docs\two.txt"},
+            {"filename": r"D:\Docs\three.txt"},
+        ]
+    ).encode("utf-8")
+
+    def fake_run(cmd, capture_output=False, text=False, check=False, **kwargs):
+        seen["cmd"] = cmd
+        return SimpleNamespace(returncode=0, stdout=payload, stderr=b"")
+
+    monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
+    monkeypatch.setattr(search_backends, "resolve_path", lambda path, env: f"/mnt/d/Docs/{path.split('\\')[-1]}" if env == "wsl" else path)
+    result = bridge_tools.system_locator("txt", target_env="windows", limit=2, offset=5)
+    assert "-viewport-offset" in seen["cmd"]
+    assert "-viewport-count" in seen["cmd"]
+    assert result["meta"]["everything_native_paging"] is True
+    assert result["meta"]["has_more"] is True
+    assert result["meta"]["total_found_exact"] is False
+    assert result["meta"]["total_found"] == 7
+    assert result["meta"]["returned_count"] == 2
+    assert len(result["results"]) == 2
+
+
+def test_non_native_locator_reports_exact_total_when_known(monkeypatch) -> None:
+    monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: "/mnt/c/Program Files/Everything/es.exe")
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "everything")
+    monkeypatch.setattr(search_backends, "everything_supports_native_paging", lambda: False)
+    monkeypatch.setattr(search_backends, "path_allowed_for_search_result", lambda path: True)
+
+    def fake_run(cmd, capture_output=False, text=False, check=False, **kwargs):
+        return SimpleNamespace(returncode=0, stdout=b"D:\\Docs\\one.txt\nD:\\Docs\\two.txt\n", stderr=b"")
+
+    monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
+    result = bridge_tools.system_locator("txt", target_env="windows", limit=5, offset=0)
+    assert result["meta"]["total_found"] == 2
+    assert result["meta"]["returned_count"] == 2
+    assert result["meta"]["total_found_exact"] is True
+
+
 def test_content_locator_anytxt_uses_configured_runtime_url(monkeypatch) -> None:
-    import search_backends
     monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "anytxt")
     monkeypatch.setenv("BRIDGE_SEARCH_ANYTXT_URL", "http://winhost:9921/api")
 
@@ -115,7 +163,7 @@ def test_content_locator_anytxt_uses_configured_runtime_url(monkeypatch) -> None
 
 def test_manage_file_contract_read_and_encoding(tmp_path) -> None:
     target = tmp_path / "note.txt"
-    bridge_tools.hybrid_file_io("write", str(target), content="hello", is_confirmed=True, overwrite=True)
+    bridge_tools.hybrid_file_io("write", str(target), content="hello", is_confirmed=True)
     result = bridge_tools.hybrid_file_io("read", str(target))
     assert set(result.keys()) == {"success", "results", "errors", "warnings", "meta"}
     assert result["results"][0]["content"] == "hello"
@@ -144,6 +192,28 @@ def test_manage_file_requires_confirmation_for_write(tmp_path) -> None:
     result = bridge_tools.hybrid_file_io("write", str(target), content="hello", is_confirmed=False)
     assert result["success"] is False
     assert result["errors"][0]["code"] == "write_confirmation_required"
+
+
+def test_manage_file_write_missing_parent_returns_structured_error(tmp_path) -> None:
+    target = tmp_path / "missing" / "note.txt"
+    result = bridge_tools.hybrid_file_io("write", str(target), content="hello", is_confirmed=True)
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "destination_parent_missing"
+
+
+def test_manage_file_write_mode_append_is_explicit(tmp_path) -> None:
+    target = tmp_path / "note.txt"
+    bridge_tools.hybrid_file_io("write", str(target), content="hello", is_confirmed=True)
+    bridge_tools.hybrid_file_io("write", str(target), content=" world", is_confirmed=True, write_mode="append")
+    result = bridge_tools.hybrid_file_io("read", str(target))
+    assert result["results"][0]["content"] == "hello world"
+
+
+def test_manage_file_invalid_write_mode_is_rejected(tmp_path) -> None:
+    target = tmp_path / "note.txt"
+    result = bridge_tools.hybrid_file_io("write", str(target), content="hello", is_confirmed=True, write_mode="banana")
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "invalid_write_mode"
 
 
 def test_manage_file_copy_requires_explicit_overwrite(tmp_path) -> None:
@@ -186,7 +256,6 @@ def test_manage_file_symlink_policy(tmp_path) -> None:
 def test_manage_file_delete_home_directory_blocked(monkeypatch, tmp_path) -> None:
     home = tmp_path / "home"
     home.mkdir()
-    import file_ops
     monkeypatch.setattr(file_ops.os.path, "expanduser", lambda path: str(home) if path == "~" else path)
     result = bridge_tools.hybrid_file_io("delete", str(home), is_confirmed=True)
     assert result["success"] is False
@@ -205,10 +274,10 @@ def test_map_directory_contract(tmp_path) -> None:
 
 
 def test_integration_like_everything_error(monkeypatch) -> None:
-    import search_backends
     monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: "/fake/es.exe")
     monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "everything")
-    def fake_run(cmd, capture_output=False, text=False, check=False):
+    monkeypatch.setattr(search_backends, "everything_supports_native_paging", lambda: False)
+    def fake_run(cmd, capture_output=False, text=False, check=False, **kwargs):
         return SimpleNamespace(returncode=2, stdout=b"", stderr=b"fatal")
     monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
     result = bridge_tools.system_locator("x", target_env="windows")
@@ -216,7 +285,6 @@ def test_integration_like_everything_error(monkeypatch) -> None:
 
 
 def test_integration_like_anytxt_invalid_json(monkeypatch) -> None:
-    import search_backends
     monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "anytxt")
     class FakeResponse:
         status = 200
@@ -230,18 +298,31 @@ def test_integration_like_anytxt_invalid_json(monkeypatch) -> None:
 
 
 def test_integration_like_path_translation_failure_warns(monkeypatch) -> None:
-    import search_backends
-    import path_policy
     monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: "/mnt/c/Program Files/Everything/es.exe")
     monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "everything")
+    monkeypatch.setattr(search_backends, "everything_supports_native_paging", lambda: False)
     monkeypatch.setattr(search_backends, "resolve_path", lambda path, env: path)
     monkeypatch.setattr(path_policy, "resolve_path", lambda path, env: path)
-    def fake_run(cmd, capture_output=False, text=False, check=False):
+    def fake_run(cmd, capture_output=False, text=False, check=False, **kwargs):
         return SimpleNamespace(returncode=0, stdout=b"D:\\Docs\\file.txt\n", stderr=b"")
     monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
     result = bridge_tools.system_locator("file.txt", target_env="windows")
     assert result["success"] is True
     assert result["warnings"][0]["code"] == "path_translation_failed"
+
+
+def test_backend_timeout_surfaces_structured_error(monkeypatch) -> None:
+    monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: "/fake/es.exe")
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "everything")
+    monkeypatch.setattr(search_backends, "everything_supports_native_paging", lambda: False)
+
+    def fake_run(*args, **kwargs):
+        raise search_backends.subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout", 1))
+
+    monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
+    result = bridge_tools.system_locator("x", target_env="windows")
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "backend_timeout"
 
 
 def test_setup_skill_normalizes_and_persists_anytxt_url(tmp_path) -> None:
@@ -266,3 +347,14 @@ def test_setup_skill_mcporter_register_replaces_existing(monkeypatch, tmp_path) 
     assert ok is True
     assert calls[1][:4] == ["mcporter", "config", "remove", "bridge-search"]
     assert calls[2][:4] == ["mcporter", "config", "add", "bridge-search"]
+
+
+def test_everything_supports_native_paging_from_help(monkeypatch) -> None:
+    monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: "/fake/es.exe")
+    search_backends._EVERYTHING_HELP_CACHE = None
+
+    def fake_run(cmd, capture_output=False, text=False, check=False, **kwargs):
+        return SimpleNamespace(returncode=0, stdout=b"-viewport-offset\n-viewport-count\n", stderr=b"")
+
+    monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
+    assert search_backends.everything_supports_native_paging() is True

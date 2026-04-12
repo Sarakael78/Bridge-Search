@@ -108,10 +108,12 @@ Bridge Search equips your AI with the following capabilities:
 `manage_file` is stricter than a raw shell wrapper:
 
 - write and delete still require `is_confirmed=True` when confirmation gates are enabled
+- `write` now defaults to **replace**, while append requires `write_mode="append"`
 - copy and move will **not** overwrite an existing destination unless `overwrite=True`
 - copy and move refuse source and destination paths that resolve to the same location
 - copy and move refuse to place a directory inside itself
 - delete refuses filesystem root and the current user's home directory
+- write returns a structured `destination_parent_missing` error if the parent directory does not exist
 - reads try several common text encodings (`utf-8`, `utf-16`, `cp1252`) before giving up
 - write/copy/move/mkdir are blocked on symlink paths, while delete removes the symlink itself rather than following it
 - file operations use Python filesystem APIs instead of shelling out to `cp`, `mv`, or `rm -rf`
@@ -227,6 +229,11 @@ We provide templates in the `config/` directory for common setups:
 - `bridge-search.config.everything-and-anytxt.example.json` — Both Windows indexers enabled.
 - `bridge-search.config.relaxed.json` — A deliberately relaxed profile.
 
+Example configs now also expose:
+
+- `limits.command_timeout_seconds` for subprocess and HTTP timeout tuning
+- a `_write_note` reminder that `manage_file(write)` defaults to replace, while append requires `write_mode="append"` per call
+
 **AnyTXT HTTP URL:** By default, the bridge uses `http://127.0.0.1:9921/search`. Update this via the `--anytxt-url` flag during setup, by editing `config/bridge-search.config.json` (`service.anytxt_url`), or by setting `BRIDGE_SEARCH_ANYTXT_URL`.
 
 **Installer note:** `setup_skill.py` persists the AnyTXT runtime URL into `config/bridge-search.config.json`, and if a `bridge-search` mcporter entry already exists it will replace it instead of failing outright.
@@ -245,6 +252,8 @@ mcporter config add bridge-search \
 
 For OpenClaw, manually add `bridge-search` to `alsoAllow` for your agent, then run `openclaw gateway restart`.
 
+Installer note: `setup_skill.py` no longer edits `~/.openclaw/openclaw.json` unless you explicitly pass `--openclaw-allowlist`.
+
 ## 🛡️ Security Model
 
 **TL;DR:** Bridge Search includes built-in safeguards to prevent your AI from accidentally modifying critical OS files or endlessly scanning your hard drive. The MCP process runs with your standard user privileges. Controls are **defence in depth**, relying on workflow flags and path resolution.
@@ -257,9 +266,13 @@ For OpenClaw, manually add `bridge-search` to `alsoAllow` for your agent, then r
 | **Safer File Ops** | Copy/move require explicit overwrite opt-in, block self-targeting and copy-into-self mistakes, and delete refuses root and home-directory targets. |
 | **Encoding & Symlink Policy** | Text reads try common Windows/Unicode encodings before failing. Mutating operations are blocked on symlink paths so the agent must act on the resolved real path explicitly. |
 | **Search Root Limits** | WSL content/filename searches default to `$HOME`. Searching from `/` requires explicit opt-in via config keys like `security.allow_grep_from_filesystem_root`. |
-| **DoS Caps** | Directory listing, locator hits, and AnyTXT HTTP responses have hard-coded caps (e.g., `limits.max_catalog_lines`, `limits.anytxt_max_response_bytes`). |
+| **Timeouts & DoS Caps** | Directory listing, locator hits, AnyTXT HTTP responses, and subprocess calls have caps/timeouts (for example `limits.max_catalog_lines`, `limits.anytxt_max_response_bytes`, `limits.command_timeout_seconds`). |
 
 ⚠️ **Warning:** Each example JSON file includes a `_security_warning` field. Read it before editing. Relaxing these settings (like using `path_denylist: "none"` or disabling confirmation flags) is at your own risk.
+
+## 🧱 Architecture Notes
+
+See `ARCHITECTURE.md` for the internal design, backend flow, pagination strategy, timeout model, and installer posture.
 
 ## 🤝 Contributing & Support
 
