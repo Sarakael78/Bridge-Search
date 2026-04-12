@@ -1,5 +1,5 @@
 {
-  "_security_warning": "Copy to wsl-windows-search-bridge.config.json in the repo root (or set WSL_WINDOWS_SEARCH_BRIDGE_CONFIG). Keys starting with _ are ignored. Tighten security before relaxing anything.",
+  "_security_warning": "Copy to bridge-search.config.json in the repo root (or set BRIDGE_SEARCH_CONFIG). Keys starting with _ are ignored. Tighten security before relaxing anything.",
   "version": 1,
   "security": {
     "path_denylist": "default",

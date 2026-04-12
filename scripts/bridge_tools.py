@@ -8,8 +8,9 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
-# --- JSON config: wsl-windows-search-bridge.config.json next to repo root, or WSL_WINDOWS_SEARCH_BRIDGE_CONFIG ---
-# Legacy: WSL_BRIDGE_CONFIG and wsl-bridge.config.json still honored if new names are unset/missing.
+# --- JSON config: bridge-search.config.json next to repo root, or BRIDGE_SEARCH_CONFIG ---
+# Legacy: WSL_WINDOWS_SEARCH_BRIDGE_CONFIG, WSL_BRIDGE_CONFIG, wsl-windows-search-bridge.config.json,
+# wsl-bridge.config.json still honored when canonical names are unset/missing.
 _DEFAULTS: Dict[str, Any] = {
     "version": 1,
     "security": {
@@ -79,20 +80,21 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
 
 
 def _config_paths() -> List[str]:
-    for key in ("WSL_WINDOWS_SEARCH_BRIDGE_CONFIG", "WSL_BRIDGE_CONFIG"):
+    for key in ("BRIDGE_SEARCH_CONFIG", "WSL_WINDOWS_SEARCH_BRIDGE_CONFIG", "WSL_BRIDGE_CONFIG"):
         env = os.environ.get(key, "").strip()
         if env:
             return [os.path.abspath(env)]
     script_dir = os.path.dirname(os.path.abspath(__file__))
     root = os.path.abspath(os.path.join(script_dir, ".."))
     return [
+        os.path.join(root, "bridge-search.config.json"),
         os.path.join(root, "wsl-windows-search-bridge.config.json"),
         os.path.join(root, "wsl-bridge.config.json"),
     ]
 
 
 def get_bridge_config(reload: bool = False) -> Dict[str, Any]:
-    """Merged defaults + wsl-windows-search-bridge.config.json (first existing path)."""
+    """Merged defaults + bridge-search.config.json (first existing path)."""
     global _cfg_cache
     if _cfg_cache is not None and not reload:
         return _cfg_cache
@@ -106,7 +108,7 @@ def get_bridge_config(reload: bool = False) -> Dict[str, Any]:
             user = _strip_meta(raw) if isinstance(raw, dict) else {}
             merged = _deep_merge(merged, user)
         except (OSError, json.JSONDecodeError, TypeError) as exc:
-            print(f"wsl-windows-search-bridge: warning: could not load {path}: {exc}", file=sys.stderr)
+            print(f"bridge-search: warning: could not load {path}: {exc}", file=sys.stderr)
         break
     _cfg_cache = merged
     return _cfg_cache
@@ -141,7 +143,8 @@ def _restricted_prefixes() -> Tuple[str, ...]:
 
 def _parse_allowed_prefixes_env() -> Optional[List[str]]:
     raw = (
-        os.environ.get("WSL_WINDOWS_SEARCH_BRIDGE_ALLOWED_PREFIXES", "").strip()
+        os.environ.get("BRIDGE_SEARCH_ALLOWED_PREFIXES", "").strip()
+        or os.environ.get("WSL_WINDOWS_SEARCH_BRIDGE_ALLOWED_PREFIXES", "").strip()
         or os.environ.get("WSL_BRIDGE_ALLOWED_PREFIXES", "").strip()
     )
     if not raw:
@@ -287,7 +290,7 @@ def resolve_path(path: str, target_env: str) -> str:
 def is_path_allowed(path: str, target_env: str) -> bool:
     """
     True if path may be used for read/write/map/search roots.
-    Uses realpath; optional allowlist (config + WSL_WINDOWS_SEARCH_BRIDGE_ALLOWED_PREFIXES); denylist from config path_denylist.
+    Uses realpath; optional allowlist (config + BRIDGE_SEARCH_ALLOWED_PREFIXES); denylist from config path_denylist.
     """
     if not path or not str(path).strip():
         return False
@@ -392,13 +395,13 @@ def hybrid_file_io(
     if action == "write" and not is_confirmed and sec.get("require_confirm_for_writes", True):
         return {
             "success": False,
-            "error": "WRITE BLOCKED. Pass is_confirmed=True after reviewing the target path (create, append, or overwrite), or relax require_confirm_for_writes in wsl-windows-search-bridge.config.json.",
+            "error": "WRITE BLOCKED. Pass is_confirmed=True after reviewing the target path (create, append, or overwrite), or relax require_confirm_for_writes in bridge-search.config.json.",
         }
 
     if action == "delete" and not is_confirmed and sec.get("require_confirm_for_deletes", True):
         return {
             "success": False,
-            "error": "DESTRUCTIVE ACTION BLOCKED. Pass is_confirmed=True to delete, or relax require_confirm_for_deletes in wsl-windows-search-bridge.config.json.",
+            "error": "DESTRUCTIVE ACTION BLOCKED. Pass is_confirmed=True to delete, or relax require_confirm_for_deletes in bridge-search.config.json.",
         }
 
     if action == "read":
@@ -527,7 +530,8 @@ def _wsl_locator_full_root_allowed() -> bool:
     if bool(sec.get("allow_wsl_locator_from_filesystem_root", False)):
         return True
     return (
-        os.environ.get("WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_LOCATOR", "").strip() == "1"
+        os.environ.get("BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR", "").strip() == "1"
+        or os.environ.get("WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_LOCATOR", "").strip() == "1"
         or os.environ.get("WSL_BRIDGE_ALLOW_ROOT_LOCATOR", "").strip() == "1"
     )
 
@@ -631,13 +635,14 @@ def _wsl_grep_root_allowed(wsl_search_path: str) -> Tuple[bool, str]:
     canon = _canonical_path(resolve_path(wsl_search_path, "wsl"))
     cfg_allow = bool(get_bridge_config().get("security", _DEFAULTS["security"]).get("allow_grep_from_filesystem_root", False))
     env_allow = (
-        os.environ.get("WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_GREP", "").strip() == "1"
+        os.environ.get("BRIDGE_SEARCH_ALLOW_ROOT_GREP", "").strip() == "1"
+        or os.environ.get("WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_GREP", "").strip() == "1"
         or os.environ.get("WSL_BRIDGE_ALLOW_ROOT_GREP", "").strip() == "1"
     )
     if canon.rstrip(os.sep) == "/" and not cfg_allow and not env_allow:
         return (
             False,
-            "Refusing grep from '/'. Set allow_grep_from_filesystem_root in wsl-windows-search-bridge.config.json, or WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_GREP=1, or use a narrower wsl_search_path.",
+            "Refusing grep from '/'. Set allow_grep_from_filesystem_root in bridge-search.config.json, or BRIDGE_SEARCH_ALLOW_ROOT_GREP=1 (legacy: WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_GREP=1), or use a narrower wsl_search_path.",
         )
     if not is_path_allowed(wsl_search_path, "wsl"):
         return False, "SECURITY VIOLATION: Search root path not allowed."
@@ -703,7 +708,7 @@ def content_locator(
                     raw = response.read(cap_anytxt + 1)
                     if len(raw) > cap_anytxt:
                         results.append(
-                            f"[AnyTXT API Error]: Response exceeded {cap_anytxt} bytes; raise anytxt_max_response_bytes in wsl-windows-search-bridge.config.json if needed."
+                            f"[AnyTXT API Error]: Response exceeded {cap_anytxt} bytes; raise anytxt_max_response_bytes in bridge-search.config.json if needed."
                         )
                     else:
                         data = json.loads(raw.decode("utf-8"))

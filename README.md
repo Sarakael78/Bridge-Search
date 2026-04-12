@@ -1,4 +1,4 @@
-# WSL Windows Search Bridge
+# Bridge Search
 
 A high-performance bridge for cross-OS search and file management between WSL2 and Windows. This repository provides a **Skill** for behavioral guardrails and an **MCP Server** for technical execution.
 
@@ -6,10 +6,11 @@ A high-performance bridge for cross-OS search and file management between WSL2 a
 
 ## ⚡ Zero-Touch Installation (Any MCP Agent)
 
-If you are using **OpenClaw, Claude Desktop, Cursor, or Windsurf**, you can automate the setup. 
+If you are using **OpenClaw, Claude Desktop, Cursor, or Windsurf**, you can automate the setup.
 
 1.  **Windows Setup**: Ensure [Everything](https://www.voidtools.com/) and [AnyTXT](https://anytxt.net/) (port 9921) are running on Windows.
-2.  **Tell your Agent**: Clone this repo `https://github.com/Sarakael78/wsl-windows-search-bridge` and install it by running `python3 scripts/setup_skill.py`
+2.  **Tell your Agent**: Give it this link: **`https://github.com/Sarakael78/Bridge-Search`** and say:
+    **"Clone this and run `python3 scripts/setup_skill.py` to install."**
 
 The agent will autonomously:
 -   Clone the repository.
@@ -21,13 +22,13 @@ The agent will autonomously:
 
 ## 🚀 Overview
 
-The **WSL Windows Search Bridge** solves the 9P filesystem performance bottleneck in WSL2 by leveraging native Windows indexed search tools:
+**Bridge Search** solves the 9P filesystem performance bottleneck in WSL2 by leveraging native Windows indexed search tools:
 - **Everything (Voidtools)**: Instant filename and path discovery.
 - **AnyTXT Searcher**: Full-text content search via HTTP API.
 
 ## 🛠️ Features (MCP Tools)
 
-- `locate_file_or_folder`: Search with Everything (`es.exe`) by default (`target_env=windows`). Use `everywhere` to add WSL `find` under **`$HOME`** (full-root WSL find is opt-in via config or `WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_LOCATOR`). Partial filename matches pass `*wildcards*` to `es.exe` automatically.
+- `locate_file_or_folder`: Search with Everything (`es.exe`) by default (`target_env=windows`). Use `everywhere` to add WSL `find` under **`$HOME`** (full-root WSL find is opt-in via config or `BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR`). Partial filename matches pass `*wildcards*` to `es.exe` automatically.
 - `locate_content_inside_files`: Search for text inside files using AnyTXT's indexed content search.
 - `map_directory`: Generate hierarchical directory maps with pagination.
 - `manage_file`: Robust cross-OS file operations (read, write, move, delete) with built-in path translation.
@@ -41,10 +42,10 @@ The MCP process runs with your user privileges. Controls are **defense in depth*
 | Mechanism | Behavior |
 |-----------|----------|
 | Path policy | After `wslpath` where needed, paths are checked with `os.path.realpath` against a **denylist** of sensitive prefixes (for example `/etc`, `/mnt/c/Windows`, `/mnt/c/Program Files`, `/usr`, `/var`). |
-| Optional allowlist | Set **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOWED_PREFIXES`** to a colon-separated list of absolute path prefixes (or non-empty **`allowed_prefixes`** in config). When set, **file operations** must fall under one of these prefixes after resolution; **search tools** also filter **returned result rows** to matching paths (strongest lock-down). |
+| Optional allowlist | Set **`BRIDGE_SEARCH_ALLOWED_PREFIXES`** to a colon-separated list of absolute path prefixes (or non-empty **`allowed_prefixes`** in config). When set, **file operations** must fall under one of these prefixes after resolution; **search tools** also filter **returned result rows** to matching paths (strongest lock-down). Legacy: **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOWED_PREFIXES`**. |
 | `is_confirmed` | A **workflow flag** for the agent—not cryptographic authorization and **not a substitute for OS-level approval** or host policy. **All writes** and **deletes** require `is_confirmed=True`. |
-| WSL content search root | Empty `wsl_search_path` defaults to **`$HOME`**. Searching from **`/`** requires **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_GREP=1`** or **`allow_grep_from_filesystem_root`** in config. |
-| WSL filename search root | By default, `find` for WSL filename search runs under **`$HOME`** only. Full **`find /`** (with `/mnt` pruned) requires **`allow_wsl_locator_from_filesystem_root`** in config or **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_LOCATOR=1`**. |
+| WSL content search root | Empty `wsl_search_path` defaults to **`$HOME`**. Searching from **`/`** requires **`BRIDGE_SEARCH_ALLOW_ROOT_GREP=1`** or **`allow_grep_from_filesystem_root`** in config. Legacy: **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_GREP`**. |
+| WSL filename search root | By default, `find` for WSL filename search runs under **`$HOME`** only. Full **`find /`** (with `/mnt` pruned) requires **`allow_wsl_locator_from_filesystem_root`** in config or **`BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR=1`**. Legacy: **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_LOCATOR`**. |
 | Grep safety | WSL grep uses **`-F`**, **`-e`**, and **`--`** so patterns and paths are not treated as options. |
 | DoS limits | Catalog listing, locator hits, and AnyTXT HTTP responses are **capped** (see `scripts/bridge_tools.py` constants). |
 | Setup script | `setup_skill.py` runs subprocesses with **argument lists** (no shell) where possible. |
@@ -52,7 +53,9 @@ The MCP process runs with your user privileges. Controls are **defense in depth*
 
 ### Configuration file (relax or tighten policy)
 
-Place **`wsl-windows-search-bridge.config.json`** in the **repository root** (next to `README.md`), or set **`WSL_WINDOWS_SEARCH_BRIDGE_CONFIG`** to an absolute path. Copy from **`wsl-windows-search-bridge.config.example.json`** (defaults match built-in behavior). For a deliberately **relaxed** profile, see **`wsl-windows-search-bridge.config.relaxed.json`** and merge only the keys you need. The previous filenames (`wsl-bridge.config.json`, `WSL_BRIDGE_CONFIG`) still work if the new files or env var are unset.
+Place **`bridge-search.config.json`** in the **repository root** (next to `README.md`), or set **`BRIDGE_SEARCH_CONFIG`** to an absolute path. Copy from **`bridge-search.config.example.json`** (defaults match built-in behavior). For a deliberately **relaxed** profile, see **`bridge-search.config.relaxed.json`** and merge only the keys you need.
+
+Legacy filenames and env vars still work when canonical ones are unset: **`wsl-windows-search-bridge.config.json`**, **`WSL_WINDOWS_SEARCH_BRIDGE_CONFIG`**, **`wsl-bridge.config.json`**, **`WSL_BRIDGE_CONFIG`**.
 
 Each example JSON file includes a **`_security_warning`** field: read it before editing. **Changing security-related settings is at your own risk.** This project and its maintainers are **not responsible** for data loss, leaked secrets, account compromise, or unstable systems.
 
@@ -75,9 +78,9 @@ Runtime dependencies are pinned in **`requirements.txt`** (used by `setup_skill.
 |-----|---------|
 | `security.path_denylist` | `"default"` \| `"minimal"` \| `"none"` \| `"custom"` — controls blocked path prefixes (`none` removes the denylist; allowlist still applies if set). |
 | `security.custom_restricted_prefixes` | Used when `path_denylist` is `"custom"`: list of absolute path prefixes to block (after `realpath`). |
-| `security.allowed_prefixes` | If non-empty, paths must lie under one of these (merged with `WSL_WINDOWS_SEARCH_BRIDGE_ALLOWED_PREFIXES`). |
-| `security.allow_grep_from_filesystem_root` | If `true`, allows `wsl_search_path` `/` without `WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_GREP=1`. |
-| `security.allow_wsl_locator_from_filesystem_root` | If `true`, WSL `locate_file_or_folder` may use `find /` (expensive). Default is HOME-scoped only; same opt-in as **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_LOCATOR=1`**. |
+| `security.allowed_prefixes` | If non-empty, paths must lie under one of these (merged with `BRIDGE_SEARCH_ALLOWED_PREFIXES`). |
+| `security.allow_grep_from_filesystem_root` | If `true`, allows `wsl_search_path` `/` without `BRIDGE_SEARCH_ALLOW_ROOT_GREP=1`. |
+| `security.allow_wsl_locator_from_filesystem_root` | If `true`, WSL `locate_file_or_folder` may use `find /` (expensive). Default is HOME-scoped only; same opt-in as **`BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR=1`**. |
 | `security.require_confirm_for_writes` / `require_confirm_for_deletes` | Set to `false` only on trusted hosts to skip `is_confirmed` checks. |
 | `limits.*` | Raise or lower caps (`max_limit`, `max_offset`, `max_depth`, `max_catalog_lines`, `max_locator_results`, `anytxt_max_response_bytes`). |
 
@@ -126,11 +129,11 @@ Follow these steps to establish the bridge between your WSL2 environment and the
 ### 2. WSL2 Setup
 
 #### **A. Clone the Repository**
-Clone this repository into your OpenClaw `skills/` directory (or any preferred location). The default checkout directory name is **`wsl-windows-search-bridge`** (rename an older **`wsl-windows-bridge`** folder if you still have one).
+Clone this repository into your OpenClaw `skills/` directory (or any preferred location). The default checkout directory name matches the GitHub repo (**`Bridge-Search`**); older checkouts may still be named **`wsl-windows-search-bridge`** or **`wsl-windows-bridge`**.
 ```bash
 cd ~/.openclaw/workspace/skills
-git clone https://github.com/Sarakael78/wsl-windows-search-bridge.git
-cd wsl-windows-search-bridge
+git clone https://github.com/Sarakael78/Bridge-Search.git
+cd Bridge-Search
 ```
 
 #### **B. Install Python Dependencies**
@@ -164,10 +167,12 @@ The bridge tools are exposed via an MCP server (`scripts/server.py`). You can re
 #### **Using `mcporter` (OpenClaw Standard)**
 Run this command from within the repository to register the server persistently:
 ```bash
-mcporter config add wsl-windows-search-bridge \
+mcporter config add bridge-search \
   --command "python3 $(pwd)/scripts/server.py" \
   --description "WSL-to-Windows search bridge (Everything/AnyTXT)"
 ```
+
+If you previously registered **`wsl-windows-search-bridge`**, remove or replace that entry so only **`bridge-search`** is active.
 
 ---
 
@@ -176,7 +181,7 @@ mcporter config add wsl-windows-search-bridge \
 To allow an OpenClaw agent to use this bridge, you must ensure the skill is "allowed" in your `openclaw.json` config.
 
 #### **A. Add to `alsoAllow`**
-Find your agent configuration in `~/.openclaw/openclaw.json` and add `wsl-windows-search-bridge` to the `alsoAllow` list:
+Find your agent configuration in `~/.openclaw/openclaw.json` and add **`bridge-search`** to the `alsoAllow` list (replace **`wsl-windows-search-bridge`** if present):
 
 ```json
 {
@@ -186,7 +191,7 @@ Find your agent configuration in `~/.openclaw/openclaw.json` and add `wsl-window
         "id": "main",
         "tools": {
           "alsoAllow": [
-            "wsl-windows-search-bridge",
+            "bridge-search",
             "..."
           ]
         }
@@ -199,7 +204,7 @@ Find your agent configuration in `~/.openclaw/openclaw.json` and add `wsl-window
 #### **B. Verify Skill Availability**
 Run the following command to confirm the skill is recognized and enabled:
 ```bash
-openclaw skills list | grep wsl-windows-search-bridge
+openclaw skills list | grep bridge-search
 ```
 
 #### **C. Reload Agent**
@@ -215,9 +220,9 @@ Add the following to your `mcp_config.json`:
 ```json
 {
   "mcpServers": {
-    "wsl-windows-search-bridge": {
+    "bridge-search": {
       "command": "python3",
-      "args": ["/absolute/path/to/wsl-windows-search-bridge/scripts/server.py"]
+      "args": ["/absolute/path/to/Bridge-Search/scripts/server.py"]
     }
   }
 }

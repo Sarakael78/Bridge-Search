@@ -1,9 +1,9 @@
 ---
-name: wsl-windows-search-bridge
+name: bridge-search
 description: Set up and operate the WSL2-to-Windows search bridge for Everything (`es.exe`), AnyTXT via its HTTP Search Service only, and `bridge_tools.py`. Use when working across `/mnt/c` and `C:\` paths, when you need fast Windows filename search, full-text file-content search on Windows, or when enabling the bundled `bridge_tools.py` and `server.py` MCP pair as a reusable bridge skill. Do not look for or rely on an AnyTXT CLI binary; in this workflow AnyTXT is HTTP-only.
 ---
 
-# WSL Windows Search Bridge
+# Bridge Search
 
 Use this skill to set up and run the MCP bridge stored in this skill's `scripts/` folder. This is the **authoritative** bridge for cross-OS search and file management.
 
@@ -11,7 +11,7 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 
 - `scripts/bridge_tools.py`: path translation, safe file operations, directory cataloging, filename search, and content search helpers.
 - `scripts/server.py`: FastMCP wrapper exposing the bridge tools over stdio.
-- `wsl-windows-search-bridge.config.example.json`: optional JSON policy (copy to `wsl-windows-search-bridge.config.json` in the repo root to relax or tighten limits and path rules; `WSL_WINDOWS_SEARCH_BRIDGE_CONFIG` can point elsewhere).
+- `bridge-search.config.example.json`: optional JSON policy (copy to `bridge-search.config.json` in the repo root to relax or tighten limits and path rules; `BRIDGE_SEARCH_CONFIG` can point elsewhere; legacy `wsl-windows-search-bridge.config.json` / `WSL_WINDOWS_SEARCH_BRIDGE_CONFIG` still work).
 - `references/setup_directive.md`: original full setup directive and source material.
 
 ## Workflow
@@ -27,7 +27,7 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
    - **DO NOT** call `es.exe` or `grep` directly via `run_shell_command` if the MCP server can be started.
    - **DO NOT** search for an AnyTXT executable. It is handled exclusively via HTTP on port **9921**.
 5. Use this search order:
-   - Everything (`locate_file_or_folder`, default **`target_env=windows`**) for filename/path search. Use **`everywhere`** only when you also need WSL-side `find` (scoped to **`$HOME`** by default; full `/` requires config or `WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_LOCATOR=1`).
+   - Everything (`locate_file_or_folder`, default **`target_env=windows`**) for filename/path search. Use **`everywhere`** only when you also need WSL-side `find` (scoped to **`$HOME`** by default; full `/` requires config or `BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR=1`; legacy `WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_LOCATOR=1`).
    - AnyTXT (`locate_content_inside_files`) for content search.
    - Accept a "zero-hit" from Everything as a definitive "File Not Found" for the requested scope.
 6. Default search scope should be user-document areas:
@@ -42,14 +42,14 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 - **Encoding & Quoting:** The bridge tools handle Windows path quoting and `cp1252` encoding. Manual `run_shell_command` calls are likely to fail on paths with spaces or special characters.
 - **AnyTXT is a Service:** Treat AnyTXT as a networked local service. If search fails, debug the service state or port **9921**, not the local filesystem.
 - **Privacy & Noise:** Ignore `AppData`, browser profiles, `node_modules`, and caches unless explicitly instructed otherwise.
-- **Path policy:** Reads, writes, `map_directory`, and WSL grep roots honor the same **denylist** (resolved paths under `/etc`, `/mnt/c/Windows`, `/usr`, `/var`, etc. are blocked). Optional **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOWED_PREFIXES`** (`:`-separated) and config **`allowed_prefixes`** restrict file operations to those prefixes and, when set, **filter search tool result rows** (Everything/`find`, WSL `grep`, AnyTXT) to matching paths.
+- **Path policy:** Reads, writes, `map_directory`, and WSL grep roots honor the same **denylist** (resolved paths under `/etc`, `/mnt/c/Windows`, `/usr`, `/var`, etc. are blocked). Optional **`BRIDGE_SEARCH_ALLOWED_PREFIXES`** (`:`-separated; legacy **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOWED_PREFIXES`**) and config **`allowed_prefixes`** restrict file operations to those prefixes and, when set, **filter search tool result rows** (Everything/`find`, WSL `grep`, AnyTXT) to matching paths.
 - **Confirmation flag:** `is_confirmed` is an **agent workflow** toggle—not authorization, not cryptographic proof of human approval, and **not a substitute for OS-level approval**. All **writes** and **deletes** still require it so the model explicitly opts in.
-- **WSL grep default root:** Empty `wsl_search_path` uses **`$HOME`**. Grep from **`/`** needs **`allow_grep_from_filesystem_root`** in `wsl-windows-search-bridge.config.json` or **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_GREP=1`**.
-- **Config file:** Optional **`wsl-windows-search-bridge.config.json`** (see `wsl-windows-search-bridge.config.example.json`) adjusts denylist strength, confirmation flags, grep-from-root, and resource caps without editing Python. Example files include **`_security_warning`**: relaxing settings is **at your own risk** (see README for what can go wrong).
+- **WSL grep default root:** Empty `wsl_search_path` uses **`$HOME`**. Grep from **`/`** needs **`allow_grep_from_filesystem_root`** in `bridge-search.config.json` or **`BRIDGE_SEARCH_ALLOW_ROOT_GREP=1`** (legacy **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_GREP=1`**).
+- **Config file:** Optional **`bridge-search.config.json`** (see `bridge-search.config.example.json`) adjusts denylist strength, confirmation flags, grep-from-root, and resource caps without editing Python. Example files include **`_security_warning`**: relaxing settings is **at your own risk** (see README for what can go wrong).
 
 ## Integration: Legal Research
 
-- **Primary Provider:** This skill (`wsl-windows-search-bridge`) is the **sole provider** of Windows-side file discovery for the `legal-local-research` skill.
+- **Primary Provider:** This skill (`bridge-search`) is the **sole provider** of Windows-side file discovery for the `legal-local-research` skill.
 - **Cross-Matter Context:** When `legal-local-research` needs to check for prior matters or precedents stored on the Windows host, it **must** call this bridge.
 
 ## Fast mental model

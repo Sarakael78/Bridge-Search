@@ -1,15 +1,15 @@
-**Canonical source:** The maintained implementation is `scripts/bridge_tools.py` and `scripts/server.py` in this repository (plus `wsl-windows-search-bridge.config.example.json`). The material below is historical reference; when they disagree with the scripts, trust the scripts.
+**Canonical source:** The maintained implementation is `scripts/bridge_tools.py` and `scripts/server.py` in this repository (plus `bridge-search.config.example.json`). The material below is historical reference; when they disagree with the scripts, trust the scripts.
 
 ---
 
 ### File 1: `SETUP_DIRECTIVE.md` (Give this to OpenClaw)
 
 ```markdown
-# OPENCLAW INITIALISATION DIRECTIVE: wsl-windows-search-bridge
+# OPENCLAW INITIALISATION DIRECTIVE: bridge-search
 **Target Environment:** WSL2 (Ubuntu/Debian) bridged to Windows Host.
 
 ## System Objective
-You must install, configure, and initialise the **wsl-windows-search-bridge** Model Context Protocol (MCP) server. This server grants you high-performance, cross-environment filesystem manipulation, directory indexing, and instantaneous full-text search capabilities.
+You must install, configure, and initialise the **bridge-search** Model Context Protocol (MCP) server. This server grants you high-performance, cross-environment filesystem manipulation, directory indexing, and instantaneous full-text search capabilities.
 
 ## Execution Steps
 
@@ -275,7 +275,7 @@ from typing import Optional, List
 from mcp.server.fastmcp import FastMCP
 from bridge_tools import hybrid_file_io, catalog_directory, system_locator, content_locator
 
-mcp = FastMCP("wsl-windows-search-bridge")
+mcp = FastMCP("bridge-search")
 
 @mcp.tool()
 def manage_file(action: str, source_path: str, destination_path: str = None, content: str = None, target_env: str = "wsl", overwrite: bool = False, is_confirmed: bool = False) -> str:

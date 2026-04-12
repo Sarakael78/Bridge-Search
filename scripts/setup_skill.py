@@ -19,7 +19,7 @@ def run_command(cmd: List[str], description: str) -> bool:
 
 def setup() -> None:
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    skill_name = "wsl-windows-search-bridge"
+    skill_name = "bridge-search"
     server_path = os.path.join(base_dir, "scripts", "server.py")
     requirements_txt = os.path.join(base_dir, "requirements.txt")
     config_path = os.path.expanduser("~/.openclaw/openclaw.json")
@@ -43,7 +43,7 @@ def setup() -> None:
         "mcporter",
         "config",
         "add",
-        "wsl-windows-search-bridge",
+        "bridge-search",
         "--command",
         f"python3 {shlex.quote(server_path)}",
         "--description",
@@ -86,11 +86,11 @@ def setup() -> None:
     print("\nFor Claude Desktop / Cursor / Windsurf, add this to your MCP config:")
     print(
         json.dumps(
-            {"mcpServers": {"wsl-windows-search-bridge": {"command": "python3", "args": [server_path]}}},
+            {"mcpServers": {"bridge-search": {"command": "python3", "args": [server_path]}}},
             indent=2,
         )
     )
-    print("\nAgents can now use tools from wsl-windows-search-bridge.")
+    print("\nAgents can now use tools from bridge-search.")
 
 
 if __name__ == "__main__":
