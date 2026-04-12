@@ -1,6 +1,6 @@
 # Bridge Search 🌉
 
-Searching your Windows files (`/mnt/c`) from inside WSL2 is notoriously slow, and AI agents (like OpenClaw, Claude Desktop, Cursor, or Windsurf) often time out, get stuck, or hallucinate when forced to brute-force search across the OS boundary using standard Linux commands. 
+Searching your Windows files (`/mnt/c`) from inside WSL2 is notoriously slow, and AI agents (like OpenClaw, Claude Desktop, Cursor, or Windsurf) often time out, get stuck, or hallucinate when forced to brute-force search across the OS boundary using standard Linux commands.
 
 **Bridge Search** solves this by connecting your AI agents directly to blazing-fast Windows-native search engines. It provides Model Context Protocol (MCP) tools that seamlessly translate paths and query **Voidtools Everything** (for instant file location) and **AnyTXT** (for instant full-text content search) over the host boundary.
 
@@ -19,12 +19,21 @@ To get blazing-fast search speeds, you need the underlying Windows indexers inst
 Open your WSL2 terminal and run:
 
 ```bash
-git clone [https://github.com/Sarakael78/Bridge-Search.git](https://github.com/Sarakael78/Bridge-Search.git)
+git clone https://github.com/Sarakael78/Bridge-Search.git
 cd Bridge-Search
+chmod +x install.sh   # only needed if the executable bit was not preserved
+./install.sh
+```
+
+`install.sh` is a small bootstrap script: on Debian/Ubuntu-based WSL it can install missing `python3`, `pip`, and `venv` via `apt` (requires your password for `sudo`), then it runs `scripts/setup_skill.py --venv`. On other distros it skips `apt` and expects you to install those tools yourself.
+
+If you already have Python 3.10+ with pip and venv, you can run the setup step directly:
+
+```bash
 python3 scripts/setup_skill.py --venv
 ```
 
-This script installs the required Python dependencies (Python 3.10+ required), registers the MCP server with `mcporter`, and automatically adds the skill to OpenClaw if it is installed.
+This installs the required Python dependencies, registers the MCP server with `mcporter`, and automatically adds the skill to OpenClaw if it is installed.
 
 ---
 
@@ -34,7 +43,9 @@ This script installs the required Python dependencies (Python 3.10+ required), r
 
 ### Zero-Touch Setup Prompt
 Human users can copy and paste this exact prompt to their AI agent to get started:
-> "I need you to search my Windows files efficiently. Please clone `https://github.com/Sarakael78/Bridge-Search`, run `python3 scripts/setup_skill.py --venv`, and use the `bridge-search` MCP tools for any file or content lookups going forward."
+> "I need you to search my Windows files efficiently. Please clone `https://github.com/Sarakael78/Bridge-Search`, run `./install.sh` from the repo root (or `python3 scripts/setup_skill.py --venv` if Python is already set up), and use the `bridge-search` MCP tools for any file or content lookups going forward."
+
+**If `./install.sh` stops for a `sudo` password**, you cannot complete that step autonomously: tell the human to run `./install.sh` manually in their WSL terminal, then continue once setup has finished.
 
 ### Agent Guardrails (The "Absolute Zero" Rule)
 As an AI using these tools, you **must** obey the following behavioural logic to save time and compute:
@@ -82,7 +93,7 @@ For OpenClaw, manually add `bridge-search` to `alsoAllow` for your agent, then r
 
 ## 🛡️ Security Model
 
-**TL;DR:** Bridge Search includes built-in safeguards to prevent your AI from accidentally modifying critical OS files or endlessly scanning your hard drive. 
+**TL;DR:** Bridge Search includes built-in safeguards to prevent your AI from accidentally modifying critical OS files or endlessly scanning your hard drive.
 
 The MCP process runs with your standard user privileges. Controls are **defence in depth**, relying on workflow flags and path resolution.
 
@@ -101,4 +112,3 @@ The MCP process runs with your standard user privileges. Controls are **defence 
 ## 📝 Licence
 
 MIT
-```

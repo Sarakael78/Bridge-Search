@@ -17,7 +17,7 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 ## Workflow
 
 1. Confirm WSL2 is the current environment.
-2. Verify Python 3.10+ and the `mcp` package are available (run **`python3 scripts/setup_skill.py`** from the repo root to install deps and register MCP; use **`--venv`** / **`--dev`** as needed; **`--skip-checks`** if backends exclude Windows services).
+2. Verify Python 3.10+ and the `mcp` package are available (prefer **`./install.sh`** from the repo root on Debian/Ubuntu WSL—it installs missing `python3`/`pip`/`venv` via `apt` when needed, then runs **`setup_skill.py --venv`**; otherwise run **`python3 scripts/setup_skill.py --venv`**; add **`--dev`** as needed; **`--skip-checks`** if backends exclude Windows services). If **`sudo`** prompts for a password, the human must run **`./install.sh`** locally.
 3. Confirm Windows-side prerequisites match **`backends`** in **`config/bridge-search.config.json`** (defaults: Everything + AnyTXT):
    - Voidtools Everything is installed and running (if **`backends.everything`**).
    - AnyTXT Searcher is installed and the **HTTP Search Service** is enabled on port **9921** (if **`backends.anytxt`**; see `bridge_tools.py` for the request URL).
