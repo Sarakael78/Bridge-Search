@@ -1,43 +1,101 @@
 # Bridge Search
 
-A high-performance bridge for cross-OS search and file management between WSL2 and Windows. This repository provides a **Skill** for behavioral guardrails and an **MCP Server** for technical execution.
+Fast **filename** and **full-text** search across WSL2 and Windows without crawling `/mnt/c` like it’s 1999. This repo ships a **Skill** (behavioral guardrails) and an **MCP server** (`scripts/server.py`) that talks to **Voidtools Everything** and **AnyTXT** over the host boundary.
 
-Repository: [`Sarakael78/Bridge-Search`](https://github.com/Sarakael78/Bridge-Search) — skill / MCP id **`bridge-search`**, policy file **`bridge-search.config.json`** (default checkout folder **`Bridge-Search`**).
-
----
-
-## ⚡ Zero-Touch Installation (Any MCP Agent)
-
-If you are using **OpenClaw, Claude Desktop, Cursor, or Windsurf**, you can automate the setup.
-
-1.  **Windows Setup**: Ensure [Everything](https://www.voidtools.com/) and [AnyTXT](https://anytxt.net/) (port 9921) are running on Windows.
-2.  **Tell your Agent**: Give it this link: **`https://github.com/Sarakael78/Bridge-Search`** and say:
-    **"Clone this and run `python3 scripts/setup_skill.py` to install."**
-
-The agent will autonomously:
--   Clone the repository.
--   Install Python dependencies.
--   Register the server.
--   Auto-configure the environment.
+**Repository:** [`Sarakael78/Bridge-Search`](https://github.com/Sarakael78/Bridge-Search) — MCP / skill id **`bridge-search`**, optional policy file **`bridge-search.config.json`** (default checkout folder **`Bridge-Search`**).
 
 ---
 
-## 🚀 Overview
+## Why use it
 
-**Bridge Search** solves the 9P filesystem performance bottleneck in WSL2 by leveraging native Windows indexed search tools:
-- **Everything (Voidtools)**: Instant filename and path discovery.
-- **AnyTXT Searcher**: Full-text content search via HTTP API.
-
-## 🛠️ Features (MCP Tools)
-
-- `locate_file_or_folder`: Search with Everything (`es.exe`) by default (`target_env=windows`). Use `everywhere` to add WSL `find` under **`$HOME`** (full-root WSL find is opt-in via config or `BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR`). Partial filename matches pass `*wildcards*` to `es.exe` automatically.
-- `locate_content_inside_files`: Search for text inside files using AnyTXT's indexed content search.
-- `map_directory`: Generate hierarchical directory maps with pagination.
-- `manage_file`: Robust cross-OS file operations (read, write, move, delete) with built-in path translation.
+WSL2’s Plan 9–style `/mnt/c` access is fine for occasional files but painful for “find every PDF mentioning X.” Bridge Search hands that work to **Windows-native indexers**: instant path lookup via **Everything** (`es.exe`) and indexed content search via **AnyTXT’s HTTP API** (default port **9921**). Your agent gets stable MCP tools with **`wslpath`**-aware path handling instead of brittle shell pipelines.
 
 ---
 
-## Security model
+## Search backends (Everything, AnyTXT, WSL)
+
+You can run **only** what you need. Set **`backends`** in **`bridge-search.config.json`** (copy from **`bridge-search.config.example.json`**) or use per-process env vars.
+
+| Goal | Config hint |
+|------|----------------|
+| Everything filename search only | `backends.everything: true`, `backends.wsl_find: false` — `locate_file_or_folder` with **`target_env: "windows"`** |
+| WSL filename (`find`) only | `backends.wsl_find: true`, `backends.everything: false` — **`target_env: "wsl"`** |
+| Both filename engines | Defaults (`everything` + `wsl_find` true) and **`target_env: "everywhere"`** |
+| AnyTXT content search only | `backends.anytxt: true`, `backends.wsl_grep: false` — **`target_env: "windows"`** with `locate_content_inside_files` |
+| WSL grep content only | `backends.wsl_grep: true`, `backends.anytxt: false` — **`target_env: "wsl"`** |
+| Both content engines | Defaults and **`target_env: "everywhere"`** |
+
+**Env overrides:** **`BRIDGE_SEARCH_ENABLE_EVERYTHING`**, **`BRIDGE_SEARCH_ENABLE_ANYTXT`**, **`BRIDGE_SEARCH_ENABLE_WSL_FIND`**, **`BRIDGE_SEARCH_ENABLE_WSL_GREP`** — `1`/`0`, `true`/`false`, or `on`/`off`.
+
+The install script’s post-checks **respect these flags** (e.g. it won’t insist on AnyTXT if `backends.anytxt` is false).
+
+---
+
+## Prerequisites (Windows)
+
+Install only what matches your **`backends`** (defaults expect **both** Windows indexers):
+
+1. **[Everything](https://www.voidtools.com/)** — service running; **`es.exe`** on PATH or under `C:\Program Files\Everything\`.
+2. **[AnyTXT Searcher](https://anytxt.net/)** — **Tool → HTTP Search Service** on port **9921** (bridge default; change both the app and your workflow if you use another port).
+
+---
+
+## Install (recommended)
+
+```bash
+git clone https://github.com/Sarakael78/Bridge-Search.git
+cd Bridge-Search
+python3 scripts/setup_skill.py
+```
+
+The script **installs** Python deps (`requirements.txt`, or `mcp` if missing), **registers** the MCP server with **`mcporter`** (`command` + `args`, written to `~/.mcporter/mcporter.json`), **adds** **`bridge-search`** to OpenClaw **`alsoAllow`** for the **`main`** agent when `~/.openclaw/openclaw.json` exists, runs **health probes** (AnyTXT HTTP + `es.exe -version` when those backends are enabled), runs **`openclaw skills list`** if available, prints a **JSON snippet** for Claude Desktop / Cursor / Windsurf, and exits **non-zero** if a required probe fails (unless you opt out).
+
+| Flag | Purpose |
+|------|---------|
+| `--venv` | Create or reuse **`.venv`** and register that interpreter (recommended; avoids `--user` site-packages). |
+| `--venv-path DIR` | Venv location relative to repo root (default `.venv`). |
+| `--dev` | Also install **`requirements-dev.txt`** (e.g. pytest). |
+| `--skip-checks` | Skip AnyTXT / Everything post-install probes (CI or WSL-only backends). |
+| `--anytxt-url URL` | AnyTXT base URL for the HTTP probe (default `http://127.0.0.1:9921/`). |
+| `--restart-gateway` | Run **`openclaw gateway restart`** after setup (optional; can interrupt sessions). |
+
+**Examples**
+
+```bash
+python3 scripts/setup_skill.py --venv --dev
+python3 scripts/setup_skill.py --skip-checks
+```
+
+---
+
+## Zero-touch (any MCP agent)
+
+1. Complete **Windows** prerequisites for the backends you use (see above).
+2. Tell your agent: clone **`https://github.com/Sarakael78/Bridge-Search`** and run **`python3 scripts/setup_skill.py`** (add flags as needed).
+
+---
+
+## Features (MCP tools)
+
+- **`locate_file_or_folder`**: Everything (`es.exe`) on Windows by default (`target_env=windows`). Use **`everywhere`** to combine with WSL **`find`** under **`$HOME`** (full-root WSL find is opt-in via config or **`BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR`**). Partial filename matches add `*wildcards*` for `es.exe` unless **`exact_match`**.
+- **`locate_content_inside_files`**: AnyTXT HTTP on Windows; WSL **`grep`** when targeting WSL paths.
+- **`map_directory`**: Hierarchical directory maps with pagination.
+- **`manage_file`**: Cross-OS read / write / move / delete with path translation and policy checks.
+
+---
+
+## Security at a glance
+
+- **Path denylist** (and optional **allowlist**) on resolved paths; search **result rows** can be filtered when an allowlist is set.
+- **`is_confirmed`** is a workflow flag for writes/deletes—not OS-level authorization.
+- **Resource caps** limit listing, locator hits, and AnyTXT response size (see `scripts/bridge_tools.py`).
+- **`setup_skill.py`** runs subprocesses with **argument lists** (no shell) where possible.
+
+Full detail, relax/tighten guidance, and config keys are in the next section.
+
+---
+
+## Security model (full)
 
 The MCP process runs with your user privileges. Controls are **defense in depth**, not a substitute for host trust and agent policy.
 
@@ -50,7 +108,6 @@ The MCP process runs with your user privileges. Controls are **defense in depth*
 | WSL filename search root | By default, `find` for WSL filename search runs under **`$HOME`** only. Full **`find /`** (with `/mnt` pruned) requires **`allow_wsl_locator_from_filesystem_root`** in config or **`BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR=1`**. Legacy: **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_LOCATOR`**. |
 | Grep safety | WSL grep uses **`-F`**, **`-e`**, and **`--`** so patterns and paths are not treated as options. |
 | DoS limits | Catalog listing, locator hits, and AnyTXT HTTP responses are **capped** (see `scripts/bridge_tools.py` constants). |
-| Setup script | `setup_skill.py` runs subprocesses with **argument lists** (no shell) where possible. |
 | Search result row filtering | When an allowlist is active (env and/or config), `locate_file_or_folder` and `locate_content_inside_files` drop result lines whose paths are outside allowed prefixes (Everything/`find`, WSL `grep`, AnyTXT). |
 
 ### Configuration file (relax or tighten policy)
@@ -70,24 +127,9 @@ If you relax the defaults, realistic outcomes include:
 
 Only relax settings on machines and user accounts you trust; prefer tightening with **`allowed_prefixes`** when possible.
 
-### Search backends (Everything, AnyTXT, WSL)
-
-Use **`backends`** in **`bridge-search.config.json`** to run **Voidtools Everything** only, **AnyTXT** only, **both** on Windows, and/or the WSL **`find`** / **`grep`** helpers:
-
-| Goal | Set in config |
-|------|----------------|
-| Everything filename search only | `backends.everything: true`, `backends.wsl_find: false` — use **`target_env: "windows"`** with `locate_file_or_folder`. |
-| WSL filename (`find`) only | `backends.wsl_find: true`, `backends.everything: false` — use **`target_env: "wsl"`**. |
-| Both filename engines | Defaults (`everything` + `wsl_find` true) and **`target_env: "everywhere"`**. |
-| AnyTXT content search only | `backends.anytxt: true`, `backends.wsl_grep: false` — use **`target_env: "windows"`** with `locate_content_inside_files`. |
-| WSL grep content only | `backends.wsl_grep: true`, `backends.anytxt: false` — use **`target_env: "wsl"`**. |
-| Both content engines | Defaults and **`target_env: "everywhere"`**. |
-
-Optional environment overrides (per-process): **`BRIDGE_SEARCH_ENABLE_EVERYTHING`**, **`BRIDGE_SEARCH_ENABLE_ANYTXT`**, **`BRIDGE_SEARCH_ENABLE_WSL_FIND`**, **`BRIDGE_SEARCH_ENABLE_WSL_GREP`** — set to **`1`** / **`0`**, **`true`** / **`false`**, or **`on`** / **`off`**.
-
 ### Pinned dependencies
 
-Runtime dependencies are pinned in **`requirements.txt`** (used by `setup_skill.py` and recommended manual installs). For reproducible deployments you can snapshot your environment with `pip freeze > requirements.lock` and install from that file in controlled environments.
+Runtime dependencies are pinned in **`requirements.txt`**. For reproducible deployments you can snapshot with `pip freeze > requirements.lock` and install from that file in controlled environments.
 
 ---
 
@@ -109,133 +151,20 @@ Keys whose names start with `_` are ignored (documentation only).
 
 ---
 
-### 🚀 Agent-Led Installation (Automated)
+## Advanced (manual MCP registration)
 
-**Directive to Agents**: If you are a coding assistant (Claude, Cursor, Codex, Windsurf, or OpenClaw), you can perform the entire setup by executing:
+If you cannot run **`setup_skill.py`**, register stdio yourself with **`mcporter`** (uses **`--persist`** for the config file path):
 
-```bash
-python3 scripts/setup_skill.py
-```
-
-This script will:
-1.  Install dependencies from `requirements.txt` (or `mcp` if that file is missing).
-2.  Register the MCP server via `mcporter`.
-3.  Auto-configure OpenClaw (`openclaw.json`) if detected.
-4.  Provide a JSON snippet for manual addition to other agent configs (Claude/Cursor/Windsurf).
-
----
-
-## 📦 Manual Installation
-
-Follow these steps to establish the bridge between your WSL2 environment and the Windows host.
-
-### 1. Windows Host Setup
-
-#### **A. Voidtools Everything (Filename Search)**
-1.  **Download & Install**: Get the [Everything installer](https://www.voidtools.com/downloads/).
-2.  **Verify Service**: Ensure the "Everything Service" is running (Tools -> Options -> General -> Everything Service).
-3.  **Command-Line Interface**: Ensure `es.exe` is available. The bridge will automatically look in `C:\Program Files\Everything\`, but adding it to your Windows `PATH` is recommended.
-
-#### **B. AnyTXT Searcher (Content Search)**
-1.  **Download & Install**: Get [AnyTXT Searcher](https://anytxt.net/).
-2.  **Enable HTTP Search Service**:
-    *   Open AnyTXT Searcher.
-    *   Go to **Tool -> HTTP Search Service**.
-    *   Set the **Port** to `9921` (this matches the bridge's default).
-    *   Click **Start**.
-    *   *Note*: If you use a different port, you must update `scripts/bridge_tools.py`.
-
----
-
-### 2. WSL2 Setup
-
-#### **A. Clone the Repository**
-Clone this repository into your OpenClaw `skills/` directory (or any preferred location). The default checkout folder is **`Bridge-Search`** (matches the GitHub repo name).
-```bash
-cd ~/.openclaw/workspace/skills
-git clone https://github.com/Sarakael78/Bridge-Search.git
-cd Bridge-Search
-```
-
-#### **B. Install Python Dependencies**
-The bridge requires Python 3.10+ and the dependencies pinned in **`requirements.txt`** (also declared under `[project]` in `pyproject.toml`). For running tests, install **`requirements-dev.txt`**. It is recommended to use a virtual environment or install globally for your user:
-```bash
-# Using a virtual environment (Recommended)
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
-
-# OR install globally for your user
-pip install -r requirements.txt --user
-pip install -r requirements-dev.txt --user
-```
-
-Run tests from the repo root: `python3 -m pytest` (see `[tool.pytest.ini_options]` in `pyproject.toml`).
-
-#### **C. Verify Connectivity**
-Test if WSL can reach the Windows AnyTXT service:
-```bash
-curl http://127.0.0.1:9921/
-```
-
----
-
-### 3. Registering the MCP Server
-
-The bridge tools are exposed via an MCP server (`scripts/server.py`). You can register this with any MCP-compatible host.
-
-#### **Using `mcporter` (OpenClaw Standard)**
-Run this command from within the repository to register the server persistently:
 ```bash
 mcporter config add bridge-search \
-  --command "python3 $(pwd)/scripts/server.py" \
-  --description "WSL-to-Windows search bridge (Everything/AnyTXT)"
+  --command python3 \
+  --arg /absolute/path/to/Bridge-Search/scripts/server.py \
+  --description "WSL-to-Windows search bridge (Everything/AnyTXT)" \
+  --persist ~/.mcporter/mcporter.json
 ```
 
----
+Or add to **`mcp_config.json`** / host UI:
 
-### 4. Enabling for OpenClaw Agents
-
-To allow an OpenClaw agent to use this bridge, you must ensure the skill is "allowed" in your `openclaw.json` config.
-
-#### **A. Add to `alsoAllow`**
-Find your agent configuration in `~/.openclaw/openclaw.json` and add **`bridge-search`** to the `alsoAllow` list:
-
-```json
-{
-  "agents": {
-    "list": [
-      {
-        "id": "main",
-        "tools": {
-          "alsoAllow": [
-            "bridge-search",
-            "..."
-          ]
-        }
-      }
-    ]
-  }
-}
-```
-
-#### **B. Verify Skill Availability**
-Run the following command to confirm the skill is recognized and enabled:
-```bash
-openclaw skills list | grep bridge-search
-```
-
-#### **C. Reload Agent**
-If your OpenClaw Gateway is already running, you may need to restart it to pick up the new skill configuration:
-```bash
-openclaw gateway restart
-```
-
----
-
-### 5. Manual Integration (Claude Desktop / Windsurf)
-Add the following to your `mcp_config.json`:
 ```json
 {
   "mcpServers": {
@@ -247,12 +176,23 @@ Add the following to your `mcp_config.json`:
 }
 ```
 
-## ⚖️ Guardrails (The Absolute Zero Rule)
+**OpenClaw:** add **`bridge-search`** to **`alsoAllow`** for your agent, then **`openclaw gateway restart`** if needed.
 
-This bridge enforces strict behavioral rules for agents:
-1.  **The Absolute Zero Rule**: If Everything (`es.exe`) returns no hits, **STOP**. Do not fallback to a slow brute-force `find` or `grep` on `/mnt/c/`.
-2.  **Service-Only Content Search**: AnyTXT is treated as a networked service on port **9921**. Do not search for local binaries.
-3.  **Path Translation**: All tools use `wslpath` internally; never hand-roll path conversions.
+### Developers
 
-## 📜 License
+```bash
+python3 scripts/setup_skill.py --venv --dev
+python3 -m pytest
+```
+
+---
+
+## Guardrails (Absolute Zero)
+
+1. **The Absolute Zero Rule:** If **Everything** is enabled and returns no hits for a filename query, **STOP**. Do not fall back to slow **`find`** / **`grep`** on `/mnt/c/`.
+2. **AnyTXT is HTTP-only:** Port **9921** by default; no AnyTXT CLI binary in this workflow.
+3. **Path translation:** Use bridge tools / **`wslpath`** internally; do not hand-roll conversions.
+
+## License
+
 MIT

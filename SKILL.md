@@ -17,12 +17,11 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 ## Workflow
 
 1. Confirm WSL2 is the current environment.
-2. Verify Python 3.10+ and the `mcp` package are available.
-3. Confirm Windows-side prerequisites:
-   - Voidtools Everything is installed and running.
-   - AnyTXT Searcher is installed and the **HTTP Search Service** is enabled.
-   - **AnyTXT Port:** This bridge uses port **9921** (check `bridge_tools.py`).
-   - **Health Check:** Test connectivity with `curl http://127.0.0.1:9921/` before attempting content searches.
+2. Verify Python 3.10+ and the `mcp` package are available (run **`python3 scripts/setup_skill.py`** from the repo root to install deps and register MCP; use **`--venv`** / **`--dev`** as needed; **`--skip-checks`** if backends exclude Windows services).
+3. Confirm Windows-side prerequisites match **`backends`** in **`bridge-search.config.json`** (defaults: Everything + AnyTXT):
+   - Voidtools Everything is installed and running (if **`backends.everything`**).
+   - AnyTXT Searcher is installed and the **HTTP Search Service** is enabled on port **9921** (if **`backends.anytxt`**; see `bridge_tools.py` for the request URL).
+   - Optional: `curl http://127.0.0.1:9921/` or rely on **`setup_skill.py`** post-install probes.
 4. **Tool-Only Enforcement:**
    - **DO NOT** call `es.exe` or `grep` directly via `run_shell_command` if the MCP server can be started.
    - **DO NOT** search for an AnyTXT executable. It is handled exclusively via HTTP on port **9921**.
