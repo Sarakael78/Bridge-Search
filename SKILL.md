@@ -7,6 +7,8 @@ description: Set up and operate the WSL2-to-Windows search bridge for Everything
 
 Use this skill to set up and run the MCP bridge stored in this skill's `scripts/` folder. This is the **authoritative** bridge for cross-OS search and file management.
 
+**Installation, `mcporter`, troubleshooting, and security:** see **`README.md`** in this repo.
+
 ## Files
 
 - `scripts/bridge_tools.py`: path translation, safe file operations, directory cataloging, filename search, and content search helpers.
@@ -28,15 +30,12 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 5. Use this search order:
    - Everything (`locate_file_or_folder`, default **`target_env=windows`**) for filename/path search. Use **`everywhere`** only when you also need WSL-side `find` (scoped to **`$HOME`** by default; full `/` requires config or `BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR=1`).
    - AnyTXT (`locate_content_inside_files`) for content search.
-   - Accept a "zero-hit" from Everything as a definitive "File Not Found" for the requested scope.
-6. Default search scope should be user-document areas:
-   - `C:\Users\david\Documents`
-   - `C:\Users\david\Desktop`
-   - `C:\Users\david\Downloads`
+   - Accept a "zero-hit" from Everything as **no match in Everything’s indexed scope** for that query (usually “not found” unless indexing lag, wrong filters, or path outside indexed locations—see Guardrails).
+6. Default search scope should be the current Windows user’s document-style folders, for example under the profile (e.g. `%USERPROFILE%\Documents`, `%USERPROFILE%\Desktop`, `%USERPROFILE%\Downloads`). Adjust to the user’s actual layout when known.
 
 ## Guardrails
 
-- **The Absolute Zero Rule:** If Everything (`es.exe`) returns no hits for a filename query, **STOP**. Do not escalate to a slower brute-force `find` or `grep` on `/mnt/c/`. A zero from Everything is a high-signal "No" in this workspace.
+- **The Absolute Zero Rule:** If Everything (`es.exe`) returns no hits for a filename query, **STOP**. Do not escalate to a slower brute-force `find` or `grep` on `/mnt/c/`. A zero is a high-signal “no match” for that query in the indexer **unless** the human says Everything is still indexing, the file lives outside indexed paths, or the query/filters were wrong—in those cases, refine the query or scope; still do not brute-force `/mnt/c`.
 - **Bridge-Only Execution:** Use `manage_file`, `map_directory`, `locate_file_or_folder`, and `locate_content_inside_files` for all operations. Do not hand-roll path conversions or shell commands.
 - **Encoding & Quoting:** The bridge tools handle Windows path quoting and `cp1252` encoding. Manual `run_shell_command` calls are likely to fail on paths with spaces or special characters.
 - **AnyTXT is a Service:** Treat AnyTXT as a networked local service. If search fails, debug the service state or port **9921**, not the local filesystem.
@@ -56,7 +55,7 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 - **Everything** = `locate_file_or_folder` (Fastest)
 - **AnyTXT** = `locate_content_inside_files` (Indexed Content)
 - **Bridge Port** = **9921**
-- **No hit from Everything** = **The file does not exist.** Stop searching.
+- **No hit from Everything** = **No match in the indexer for that query** (treat as “not found” unless indexing/scope/query issues apply). Stop brute-forcing `/mnt/c`.
 
 If you catch yourself looking for an AnyTXT CLI, or repeating a slower search after a clean Everything zero, you are already off the rails.
 

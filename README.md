@@ -47,18 +47,32 @@ chmod +x install.sh
 ./install.sh
 ```
 
-*(Note: `install.sh` is a bootstrap script. On Debian/Ubuntu-based WSL, it will prompt for `sudo` to install missing `python3`, `pip`, and `venv` via `apt`, then run the Python setup. On other distros, it expects you to install those prerequisites yourself).*
+The clone directory name is arbitrary (`Bridge-Search` above); the MCP server name used in clients is **`bridge-search`**.
+
+*(Note: `install.sh` is a bootstrap script. On Debian/Ubuntu-based WSL, it will prompt for `sudo` to install missing `python3`, `pip`, and `venv` via `apt`, then run the Python setup. On Fedora/RHEL and other non-`apt` distros, install those packages with your package manager, then run `./install.sh`—it will skip `apt` and run the Python setup only.)*
+
+### 4. MCP client (`mcporter`) on WSL
+
+The bridge exposes MCP over stdio. **`setup_skill.py`** can register it; otherwise you need **[mcporter](https://github.com/steipete/mcporter)** (or another MCP host that launches `scripts/server.py`). Install Node.js, then:
+
+```bash
+npm install -g @steipete/mcporter
+```
+
+Manual registration is documented under [Manual MCP Registration](#manual-mcp-registration) below.
 
 ## 🤖 For AI Agents (OpenClaw, Claude, Cursor)
 
 **If you are an AI assistant reading this**, Bridge Search provides you with specialised MCP tools to navigate the Windows/WSL file system efficiently. Because agents like OpenClaw struggle to search Windows mounts quickly, you must rely on these tools instead of shell commands.
+
+Full agent workflow, default scope, and integration notes are in **`SKILL.md`** at the repo root; the following is a short summary.
 
 ### Agent Guardrails (The "Absolute Zero" Rule)
 
 As an AI using these tools, you **must** obey the following behavioural logic to save time and compute:
 
 1. **Never brute-force `/mnt/c`:** Do not use `find` or `grep` on Windows mounts. Use the `locate_file_or_folder` and `locate_content_inside_files` tools.
-2. **The Absolute Zero Rule:** When `target_env` is set to `windows`, if the `locate_file_or_folder` tool (using Everything) returns **zero hits**, you must **STOP**. Do not fall back to slow Linux `find`/`grep` commands on `/mnt/c/`. A zero-hit from the Everything indexer means the file does not exist.
+2. **The Absolute Zero Rule:** When `target_env` is set to `windows`, if the `locate_file_or_folder` tool (using Everything) returns **zero hits**, you must **STOP**. Do not fall back to slow Linux `find`/`grep` commands on `/mnt/c/`. Treat a zero-hit as **no match for this query in Everything’s indexed scope**—which usually means the file is absent or not yet indexed. **Exceptions:** if the human reports Everything is still indexing, the path is outside indexed locations, or the query/filters were wrong, fix the query or scope first instead of brute-forcing `/mnt/c`.
 3. **Path translation:** Use bridge tools or `wslpath` internally; do not hand-roll path conversions.
 4. **AnyTXT is HTTP-only:** Requests use the URL pattern in `scripts/bridge_tools.py` (host `127.0.0.1`, port `9921` by default). There is no AnyTXT CLI binary in this workflow.
 
@@ -142,7 +156,7 @@ For OpenClaw, manually add `bridge-search` to `alsoAllow` for your agent, then r
 If you encounter a bug or have a feature request, please [open an issue](https://github.com/Sarakael78/Bridge-Search/issues). To contribute code:
 
 1. Clone the repository.
-2. Install developer dependencies: `python3 scripts/setup_skill.py --venv --dev`
+2. Install developer dependencies: `python3 scripts/setup_skill.py --venv --dev` (requires **Python 3.10+**).
 3. Make your changes and run the test suite: `python3 -m pytest`
 4. Submit a pull request.
 
