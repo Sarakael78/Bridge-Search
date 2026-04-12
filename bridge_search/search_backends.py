@@ -6,15 +6,33 @@ import re
 import subprocess
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
 
-from .config import anytxt_search_url, backend_enabled, command_timeout_seconds, get_bridge_config, lim
+from .config import anytxt_search_url, backend_enabled, command_timeout_seconds, get_bridge_config, get_wsl_host_ip, lim
 from .file_ops import clamp_int
 from .path_policy import allowlist_filters_search_results, canonical_path, is_path_allowed, looks_like_windows_abs_path, path_allowed_for_search_result, resolve_path
 from .result_models import error_response, make_issue, success_response
 
 _GREP_LINE_RE = re.compile(r"^(.+?):(\d+):(.*)$", re.DOTALL)
 _EVERYTHING_HELP_CACHE: Optional[str] = None
+
+
+def _get_effective_anytxt_urls() -> List[str]:
+    """Return a list of URLs to try for AnyTXT, with WSL2 host IP fallback if localhost is configured."""
+    primary = anytxt_search_url()
+    urls = [primary]
+    parsed = urllib.parse.urlparse(primary)
+    if parsed.hostname in ("127.0.0.1", "localhost"):
+        host_ip = get_wsl_host_ip()
+        if host_ip and host_ip != "127.0.0.1":
+            # Attempt to rebuild URL with the host IP. 
+            # If no port is in primary, it might be 9921 or 80 depending on scheme.
+            netloc = f"{host_ip}:{parsed.port}" if parsed.port else host_ip
+            fallback = urllib.parse.urlunparse(parsed._replace(netloc=netloc))
+            if fallback not in urls:
+                urls.append(fallback)
+    return urls
 
 
 def _subprocess_timeout() -> float:
@@ -180,19 +198,24 @@ def system_locator(query: str, target_env: str = "windows", exact_match: bool = 
             return
         results.append(item)
 
-    if run_everything:
+    def everything_worker() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], bool, bool]:
+        e_results: List[Dict[str, Any]] = []
+        e_errors: List[Dict[str, Any]] = []
+        e_warnings: List[Dict[str, Any]] = []
+        e_truncated = False
+        native_paging = False
         try:
             es_exe = resolve_es_exe()
             if not es_exe:
-                errors.append(make_issue(code="backend_unavailable", message="es.exe not found. Check Everything installation or Windows PATH.", source="windows-everything"))
+                e_errors.append(make_issue(code="backend_unavailable", message="es.exe not found. Check Everything installation or Windows PATH.", source="windows-everything"))
             else:
                 cmd, native_paging = _everything_command(es_exe, query, exact_match, limit, offset)
-                meta["everything_native_paging"] = native_paging
                 process = subprocess.run(cmd, capture_output=True, timeout=_subprocess_timeout())
                 if process.returncode == 0 and process.stdout:
                     lines = _parse_everything_results(process.stdout, native_paging=native_paging)
                     for line in lines:
-                        if truncated:
+                        if len(e_results) >= page_cap:
+                            e_truncated = True
                             break
                         raw_path = line.strip()
                         if not raw_path:
@@ -201,22 +224,25 @@ def system_locator(query: str, target_env: str = "windows", exact_match: bool = 
                         if not path_allowed_for_search_result(mapped):
                             continue
                         if mapped == raw_path and looks_like_windows_abs_path(raw_path):
-                            warnings.append(make_issue(code="path_translation_failed", message=f"Could not translate Windows path to WSL form: {raw_path}", source="windows-everything", path=raw_path))
-                        append_result({"type": "search_hit", "path": mapped, "raw_path": raw_path, "source": "windows-everything"})
-                        if native_paging and len(results) >= limit + 1:
-                            break
-                        if not native_paging and len(results) >= page_cap:
+                            e_warnings.append(make_issue(code="path_translation_failed", message=f"Could not translate Windows path to WSL form: {raw_path}", source="windows-everything", path=raw_path))
+                        e_results.append({"type": "search_hit", "path": mapped, "raw_path": raw_path, "source": "windows-everything"})
+                        if native_paging and len(e_results) >= limit + 1:
                             break
                 elif process.returncode == 0 and native_paging and process.stdout:
                     pass
                 elif process.stderr:
-                    errors.append(make_issue(code="backend_error", message=decode_windows_output(process.stderr).strip(), source="windows-everything"))
+                    e_errors.append(make_issue(code="backend_error", message=decode_windows_output(process.stderr).strip(), source="windows-everything"))
         except subprocess.TimeoutExpired:
-            errors.append(make_issue(code="backend_timeout", message="Everything query timed out.", source="windows-everything"))
+            e_errors.append(make_issue(code="backend_timeout", message="Everything query timed out.", source="windows-everything"))
         except OSError as exc:
-            errors.append(make_issue(code="backend_error", message=str(exc), source="windows-everything"))
+            e_errors.append(make_issue(code="backend_error", message=str(exc), source="windows-everything"))
+        return e_results, e_errors, e_warnings, e_truncated, native_paging
 
-    if run_wsl_find and len(results) < cap_loc:
+    def wsl_find_worker() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], bool]:
+        f_results: List[Dict[str, Any]] = []
+        f_errors: List[Dict[str, Any]] = []
+        f_warnings: List[Dict[str, Any]] = []
+        f_truncated = False
         try:
             pattern = query if exact_match else f"*{query}*"
             search_root = _wsl_filename_find_root()
@@ -224,20 +250,52 @@ def system_locator(query: str, target_env: str = "windows", exact_match: bool = 
             process = subprocess.run(cmd, capture_output=True, text=True, timeout=_subprocess_timeout())
             if process.stdout:
                 for line in process.stdout.strip().split("\n"):
-                    if truncated:
+                    if len(f_results) >= page_cap:
+                        f_truncated = True
                         break
                     path = line.strip()
                     if not path or not path_allowed_for_search_result(path):
                         continue
-                    append_result({"type": "search_hit", "path": path, "raw_path": path, "source": "wsl-find"})
-                    if len(results) >= page_cap:
-                        break
+                    f_results.append({"type": "search_hit", "path": path, "raw_path": path, "source": "wsl-find"})
             if process.returncode not in (0, 1) and process.stderr:
-                errors.append(make_issue(code="backend_error", message=process.stderr.strip(), source="wsl-find"))
+                f_errors.append(make_issue(code="backend_error", message=process.stderr.strip(), source="wsl-find"))
         except subprocess.TimeoutExpired:
-            errors.append(make_issue(code="backend_timeout", message="WSL find query timed out.", source="wsl-find"))
+            f_errors.append(make_issue(code="backend_timeout", message="WSL find query timed out.", source="wsl-find"))
         except OSError as exc:
-            errors.append(make_issue(code="backend_error", message=str(exc), source="wsl-find"))
+            f_errors.append(make_issue(code="backend_error", message=str(exc), source="wsl-find"))
+        return f_results, f_errors, f_warnings, f_truncated
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        e_future = executor.submit(everything_worker) if run_everything else None
+        f_future = executor.submit(wsl_find_worker) if run_wsl_find else None
+
+        if e_future:
+            e_results, e_errors, e_warnings, e_truncated, native_paging = e_future.result()
+            meta["everything_native_paging"] = native_paging
+            errors.extend(e_errors)
+            warnings.extend(e_warnings)
+            for r in e_results:
+                append_result(r)
+            if e_truncated:
+                truncated = True
+
+        if f_future and not truncated and len(results) < page_cap:
+            f_results, f_errors, f_warnings, f_truncated = f_future.result()
+            # If we already have results but wsl_find timed out, demote the error to a warning
+            if results and any(e["code"] == "backend_timeout" for e in f_errors):
+                for e in f_errors:
+                    if e["code"] == "backend_timeout":
+                        warnings.append(make_issue(code="backend_timeout_partial", message=f"WSL find timed out, results may be incomplete. {e['message']}", source="wsl-find"))
+                    else:
+                        errors.append(e)
+            else:
+                errors.extend(f_errors)
+            
+            warnings.extend(f_warnings)
+            for r in f_results:
+                append_result(r)
+            if f_truncated:
+                truncated = True
 
     meta["has_more"] = len(results) > limit if meta.get("everything_native_paging") else len(results) > offset + limit
     if truncated or meta.get("everything_native_paging"):
@@ -284,62 +342,112 @@ def content_locator(query: str, target_env: str = "everywhere", wsl_search_path:
     errors: List[Dict[str, Any]] = []
     warnings: List[Dict[str, Any]] = []
 
-    if run_wsl:
+    def anytxt_worker() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str]:
+        a_results: List[Dict[str, Any]] = []
+        a_errors: List[Dict[str, Any]] = []
+        a_warnings: List[Dict[str, Any]] = []
+        used_url = ""
+        last_err = None
+        anytxt_ok = False
+        effective_urls = _get_effective_anytxt_urls()
+        for url in effective_urls:
+            try:
+                sep = "&" if urllib.parse.urlparse(url).query else "?"
+                req = urllib.request.Request(f"{url}{sep}q={urllib.parse.quote(query)}")
+                with urllib.request.urlopen(req, timeout=_subprocess_timeout()) as response:
+                    if response.status == 200:
+                        raw = response.read(cap_anytxt + 1)
+                        if len(raw) > cap_anytxt:
+                            a_errors.append(make_issue(code="response_too_large", message=f"Response exceeded {cap_anytxt} bytes; raise anytxt_max_response_bytes if needed.", source="windows-anytxt"))
+                        else:
+                            data = json.loads(raw.decode("utf-8"))
+                            for item in data.get("results", []):
+                                if len(a_results) >= cap_loc:
+                                    break
+                                raw_path = str(item.get("path", "")).strip()
+                                if not raw_path:
+                                    continue
+                                mapped = resolve_path(raw_path, "wsl") if looks_like_windows_abs_path(raw_path) else raw_path
+                                if not path_allowed_for_search_result(mapped):
+                                    continue
+                                if mapped == raw_path and looks_like_windows_abs_path(raw_path):
+                                    a_warnings.append(make_issue(code="path_translation_failed", message=f"Could not translate Windows path to WSL form: {raw_path}", source="windows-anytxt", path=raw_path))
+                                a_results.append({"type": "content_hit", "path": mapped, "raw_path": raw_path, "snippet": item.get("snippet", ""), "source": "windows-anytxt"})
+                        used_url = url
+                        anytxt_ok = True
+                        break
+            except (OSError, json.JSONDecodeError) as exc:
+                last_err = exc
+                continue
+        
+        if not anytxt_ok and last_err:
+            if isinstance(last_err, json.JSONDecodeError):
+                a_errors.append(make_issue(code="invalid_response", message=f"Invalid JSON ({last_err})", source="windows-anytxt"))
+            else:
+                a_errors.append(make_issue(code="backend_error", message=str(last_err), source="windows-anytxt"))
+        return a_results, a_errors, a_warnings, used_url
+
+    def wsl_grep_worker() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+        g_results: List[Dict[str, Any]] = []
+        g_errors: List[Dict[str, Any]] = []
+        g_warnings: List[Dict[str, Any]] = []
         try:
             ok, root = _wsl_grep_root_allowed(eff_root)
             if not ok:
-                errors.append(make_issue(code="search_root_blocked", message=root, source="wsl-grep", path=eff_root))
+                g_errors.append(make_issue(code="search_root_blocked", message=root, source="wsl-grep", path=eff_root))
             else:
                 cmd = ["grep", "-rni", "-m", "2", "--exclude-dir=/mnt", "-F", "-e", query, "--", root]
                 process = subprocess.run(cmd, capture_output=True, text=True, timeout=_subprocess_timeout())
                 if process.stdout:
                     for line in process.stdout.strip().split("\n"):
-                        if len(results) >= cap_loc:
+                        if len(g_results) >= cap_loc:
                             break
                         path_g = grep_line_file_path(line)
                         match = _GREP_LINE_RE.match(line)
                         if path_g is None or match is None or not path_allowed_for_search_result(path_g):
                             continue
-                        results.append({"type": "content_hit", "path": path_g, "raw_path": path_g, "line_number": int(match.group(2)), "snippet": match.group(3), "source": "wsl-grep"})
-                        if len(results) >= page_cap:
-                            break
+                        g_results.append({"type": "content_hit", "path": path_g, "raw_path": path_g, "line_number": int(match.group(2)), "snippet": match.group(3), "source": "wsl-grep"})
                 if process.returncode not in (0, 1) and process.stderr:
-                    errors.append(make_issue(code="backend_error", message=process.stderr.strip(), source="wsl-grep"))
+                    g_errors.append(make_issue(code="backend_error", message=process.stderr.strip(), source="wsl-grep"))
         except subprocess.TimeoutExpired:
-            errors.append(make_issue(code="backend_timeout", message="WSL grep query timed out.", source="wsl-grep"))
+            g_errors.append(make_issue(code="backend_timeout", message="WSL grep query timed out.", source="wsl-grep"))
         except OSError as exc:
-            errors.append(make_issue(code="backend_error", message=str(exc), source="wsl-grep"))
+            g_errors.append(make_issue(code="backend_error", message=str(exc), source="wsl-grep"))
+        return g_results, g_errors, g_warnings
 
-    if run_anytxt:
-        try:
-            base = anytxt_search_url()
-            sep = "&" if urllib.parse.urlparse(base).query else "?"
-            req = urllib.request.Request(f"{base}{sep}q={urllib.parse.quote(query)}")
-            with urllib.request.urlopen(req, timeout=_subprocess_timeout()) as response:
-                if response.status == 200:
-                    raw = response.read(cap_anytxt + 1)
-                    if len(raw) > cap_anytxt:
-                        errors.append(make_issue(code="response_too_large", message=f"Response exceeded {cap_anytxt} bytes; raise anytxt_max_response_bytes if needed.", source="windows-anytxt"))
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        a_future = executor.submit(anytxt_worker) if run_anytxt else None
+        g_future = executor.submit(wsl_grep_worker) if run_wsl else None
+
+        if a_future:
+            a_results, a_errors, a_warnings, used_url = a_future.result()
+            results.extend(a_results)
+            if results and any(e["code"] == "backend_timeout" for e in a_errors):
+                for e in a_errors:
+                    if e["code"] == "backend_timeout":
+                        warnings.append(make_issue(code="backend_timeout_partial", message=f"AnyTXT timed out, results may be incomplete. {e['message']}", source="windows-anytxt"))
                     else:
-                        data = json.loads(raw.decode("utf-8"))
-                        for item in data.get("results", []):
-                            if len(results) >= cap_loc:
-                                break
-                            raw_path = str(item.get("path", "")).strip()
-                            if not raw_path:
-                                continue
-                            mapped = resolve_path(raw_path, "wsl") if looks_like_windows_abs_path(raw_path) else raw_path
-                            if not path_allowed_for_search_result(mapped):
-                                continue
-                            if mapped == raw_path and looks_like_windows_abs_path(raw_path):
-                                warnings.append(make_issue(code="path_translation_failed", message=f"Could not translate Windows path to WSL form: {raw_path}", source="windows-anytxt", path=raw_path))
-                            results.append({"type": "content_hit", "path": mapped, "raw_path": raw_path, "snippet": item.get("snippet", ""), "source": "windows-anytxt"})
-                            if len(results) >= page_cap:
-                                break
-        except OSError as exc:
-            errors.append(make_issue(code="backend_error", message=str(exc), source="windows-anytxt"))
-        except json.JSONDecodeError as exc:
-            errors.append(make_issue(code="invalid_response", message=f"Invalid JSON ({exc})", source="windows-anytxt"))
+                        errors.append(e)
+            else:
+                errors.extend(a_errors)
+            
+            warnings.extend(a_warnings)
+            if used_url:
+                meta["anytxt_url_used"] = used_url
+
+        if g_future and len(results) < page_cap:
+            g_results, g_errors, g_warnings = g_future.result()
+            if results and any(e["code"] == "backend_timeout" for e in g_errors):
+                for e in g_errors:
+                    if e["code"] == "backend_timeout":
+                        warnings.append(make_issue(code="backend_timeout_partial", message=f"WSL grep timed out, results may be incomplete. {e['message']}", source="wsl-grep"))
+                    else:
+                        errors.append(e)
+            else:
+                errors.extend(g_errors)
+
+            warnings.extend(g_warnings)
+            results.extend(g_results)
 
     meta["total_found"] = len(results)
     meta["has_more"] = len(results) > offset + limit

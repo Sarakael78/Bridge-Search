@@ -56,7 +56,9 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 
 - **Everything** = `locate_file_or_folder` (Fastest)
 - **AnyTXT** = `locate_content_inside_files` (Indexed Content)
+- **Diagnostic** = `get_health` (Check connectivity/services)
 - **Bridge Port** = **9921**
+- **WSL2 Localhost** = Automatic host discovery (from `/etc/resolv.conf`) is enabled.
 - **No hit from Everything** = **No match in the indexer for that query** (treat as “not found” unless indexing/scope/query issues apply). Stop brute-forcing `/mnt/c`.
 
 If you catch yourself looking for an AnyTXT CLI, or repeating a slower search after a clean Everything zero, you are already off the rails.

@@ -11,7 +11,13 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from typing import List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+from bridge_search.health import check_health, run_command_capture
 
 
 DEFAULT_ANYTXT_URL = "http://127.0.0.1:9921/search"
@@ -26,20 +32,6 @@ def run_command(cmd: Sequence[str], description: str) -> bool:
         err = e.stderr or e.stdout or str(e)
         print(f"[!] Error: {err}")
         return False
-
-
-def run_command_capture(cmd: Sequence[str], timeout: float = 30) -> Tuple[int, str, str]:
-    try:
-        r = subprocess.run(
-            list(cmd),
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        return r.returncode, r.stdout or "", r.stderr or ""
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return 1, "", str(e)
 
 
 def parse_args() -> argparse.Namespace:
@@ -140,70 +132,23 @@ def _pip_install(
 
 def _health_checks(anytxt_url: str) -> bool:
     """Return True if all required probes pass."""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    if script_dir not in sys.path:
-        sys.path.insert(0, script_dir)
-    from bridge_tools import _backend_enabled, resolve_es_exe
+    # We override the AnyTXT URL via env for the health check if the user provided one on CLI
+    if anytxt_url != DEFAULT_ANYTXT_URL:
+        os.environ["BRIDGE_SEARCH_ANYTXT_URL"] = anytxt_url
 
-    ok = True
-    be = _backend_enabled("everything")
-    ba = _backend_enabled("anytxt")
-    bf = _backend_enabled("wsl_find")
-    bg = _backend_enabled("wsl_grep")
+    results = check_health()
+    
+    for err in results["errors"]:
+        print(f"[!] {err['message']}")
+    
+    for warn in results["warnings"]:
+        print(f"[~] {warn['message']}")
+        
+    for name, stat in results["backends"].items():
+        if stat["enabled"] and stat.get("status") == "ok":
+            print(f"[+] {name} backend OK.")
 
-    if not be and not bf and not ba and not bg:
-        print(
-            "[!] All backends are disabled in config/env. "
-            "Enable at least one of backends.everything, anytxt, wsl_find, wsl_grep."
-        )
-        ok = False
-
-    if not be and not ba:
-        print(
-            "[~] Windows backends (Everything / AnyTXT) are disabled — "
-            "skipping Windows service probes (WSL-only mode)."
-        )
-        return ok
-
-    if ba:
-        url = _probe_url_from_anytxt(anytxt_url)
-        print(f"[*] Probing AnyTXT HTTP ({url})...")
-        try:
-            with urllib.request.urlopen(url, timeout=8) as resp:
-                _ = resp.read(512)
-            print("[+] AnyTXT HTTP reachable.")
-        except (urllib.error.URLError, OSError, TimeoutError, ValueError) as e:
-            print(
-                f"[!] AnyTXT probe failed: {e}\n"
-                "    Enable Tool → HTTP Search Service in AnyTXT (default port 9921), "
-                "or set backends.anytxt to false if you only use WSL grep."
-            )
-            ok = False
-    else:
-        print("[~] backends.anytxt is false — skipping AnyTXT HTTP probe.")
-
-    if be:
-        es = resolve_es_exe()
-        if not es:
-            print(
-                "[!] Everything (es.exe) not found under standard paths or PATH.\n"
-                "    Install Voidtools Everything and ensure es.exe is available."
-            )
-            ok = False
-        else:
-            code, out, err = run_command_capture([es, "-version"], timeout=15)
-            if code != 0:
-                print(
-                    f"[!] es.exe -version failed (exit {code}): {err or out}\n"
-                    "    Verify the Everything service is installed."
-                )
-                ok = False
-            else:
-                print(f"[+] Everything CLI OK ({es}).")
-    else:
-        print("[~] backends.everything is false — skipping es.exe probe.")
-
-    return ok
+    return results["overall_success"]
 
 
 def _mcporter_register(python_exe: str, server_path: str, mcporter_config: str) -> bool:
@@ -248,26 +193,11 @@ def _mcporter_register(python_exe: str, server_path: str, mcporter_config: str) 
     return False
 
 
-def _normalize_anytxt_url(raw: str) -> str:
-    url = raw.strip()
-    if not url:
-        return DEFAULT_ANYTXT_URL
-    if url.rstrip("/").endswith("/search"):
-        return url.rstrip("/")
-    return f"{url.rstrip('/')}/search"
-
-
-def _probe_url_from_anytxt(raw: str) -> str:
-    search_url = _normalize_anytxt_url(raw)
-    if search_url.endswith("/search"):
-        return search_url[: -len("/search")] + "/"
-    return search_url
-
-
 def _write_runtime_config(repo_root: str, anytxt_url: str) -> str:
+    from bridge_search.config import normalize_anytxt_url
     config_dir = os.path.join(repo_root, "config")
     config_path = os.path.join(config_dir, "bridge-search.config.json")
-    base = {"version": 1, "service": {"anytxt_url": _normalize_anytxt_url(anytxt_url)}}
+    base = {"version": 1, "service": {"anytxt_url": normalize_anytxt_url(anytxt_url)}}
     os.makedirs(config_dir, exist_ok=True)
     if os.path.isfile(config_path):
         with open(config_path, "r", encoding="utf-8") as handle:

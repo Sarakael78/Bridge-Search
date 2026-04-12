@@ -41,6 +41,22 @@ _BACKEND_ENV = {
 _cfg_cache: Optional[Dict[str, Any]] = None
 
 
+def get_wsl_host_ip() -> Optional[str]:
+    """Auto-discover the Windows host IP from /etc/resolv.conf in WSL2."""
+    if not os.path.exists("/etc/resolv.conf"):
+        return None
+    try:
+        with open("/etc/resolv.conf", "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip().startswith("nameserver"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return parts[1]
+    except OSError:
+        pass
+    return None
+
+
 def command_timeout_seconds() -> float:
     """Return the default subprocess timeout for backend and path-translation calls."""
     raw = os.environ.get("BRIDGE_SEARCH_CMD_TIMEOUT_SECONDS", "").strip()

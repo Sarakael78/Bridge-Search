@@ -3,8 +3,18 @@ from typing import Any, Optional
 from mcp.server.fastmcp import FastMCP
 
 from .bridge_tools import catalog_directory, content_locator, hybrid_file_io, system_locator
+from .health import check_health
 
 mcp = FastMCP("bridge-search")
+
+
+@mcp.tool()
+def get_health() -> dict[str, Any]:
+    """
+    Perform a health check of the search backends (Everything, AnyTXT, WSL).
+    Use this to diagnose connectivity or service issues.
+    """
+    return check_health()
 
 
 @mcp.tool()

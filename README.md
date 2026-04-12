@@ -99,9 +99,11 @@ sequenceDiagram
 Bridge Search equips your AI with the following capabilities:
 
 - **`locate_file_or_folder`:** Instantly finds files by name. Uses `es.exe` on Windows (`target_env=windows`). Use `everywhere` to combine with WSL `find` under `$HOME`.
-- **`locate_content_inside_files`:** Instantly searches inside documents (PDFs, Word, text). Uses AnyTXT's HTTP API on Windows and `grep` when targeting WSL paths.
-- **`map_directory`:** Generates hierarchical, paginated directory maps to understand project structures.
-- **`manage_file`:** Safely read, write, move, or delete files across the OS boundary with automatic path translation and policy checks.
+- **`locate_content_inside_files`**: Instantly searches inside documents (PDFs, Word, text). Uses AnyTXT's HTTP API on Windows and `grep` when targeting WSL paths. Includes automatic host-IP discovery for WSL2.
+- **`map_directory`**: Generates hierarchical, paginated directory maps to understand project structures.
+- **`get_health`**: Diagnoses the status of all search backends (Everything, AnyTXT, WSL find/grep) and connectivity.
+- **`manage_file`**: Safely read, write, move, or delete files across the OS boundary with automatic path translation and policy checks.
+
 
 ### `manage_file` safety rules
 
@@ -213,8 +215,8 @@ Important:
 
 ## 🚑 Troubleshooting
 
-- **AnyTXT connection errors/timeouts:** Open AnyTXT → Tool → HTTP Search Service. Ensure it is checked and the URL matches your runtime config (`service.anytxt_url` in `config/bridge-search.config.json` or `BRIDGE_SEARCH_ANYTXT_URL`; default endpoint `http://127.0.0.1:9921/search`). Allow local traffic on port 9921 in your Windows Firewall. **WSL2 localhost quirk:** If your agent still cannot reach AnyTXT from inside WSL, `127.0.0.1` may resolve to the Linux container instead of Windows. Fix this by updating `--anytxt-url` during setup so it is persisted to runtime config, setting `BRIDGE_SEARCH_ANYTXT_URL`, or enabling `networkingMode=mirrored` in `.wslconfig`.
-- **Everything returns "es.exe not found":** Ensure Everything is installed, the background service is running, and `es.exe` is in your Windows `PATH`.
+- **AnyTXT connection errors/timeouts:** Bridge Search includes **automatic WSL2 host discovery**. It tries `127.0.0.1` and then your host IP from `/etc/resolv.conf`. Use the **`get_health`** tool to diagnose exactly which URL failed. Ensure AnyTXT Searcher → Tool → HTTP Search Service is enabled on port 9921.
+- **Everything returns "es.exe not found":** Ensure Everything is installed, the background service is running, and `es.exe` is in your Windows `PATH`. Run **`get_health`** to confirm the binary path detected.
 - **`mcporter: command not found`:** Node.js or `mcporter` is missing. Install via npm: `npm install -g @steipete/mcporter`.
 - **Agent ignores tools:** If the agent drops context and tries to use `find /mnt/c/`, remind it: *"Do not use shell commands to search. Use your `bridge-search` MCP tools."*
 
