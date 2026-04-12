@@ -1,0 +1,53 @@
+"""Reusable constants for Bridge Search actions and error codes."""
+
+from __future__ import annotations
+
+from typing import Final
+
+
+class Actions:
+    READ: Final[str] = "read"
+    WRITE: Final[str] = "write"
+    COPY: Final[str] = "copy"
+    MOVE: Final[str] = "move"
+    MKDIR: Final[str] = "mkdir"
+    DELETE: Final[str] = "delete"
+
+
+class ErrorCodes:
+    QUERY_REQUIRED: Final[str] = "query_required"
+    PATH_BLOCKED: Final[str] = "path_blocked"
+    WRITE_CONFIRMATION_REQUIRED: Final[str] = "write_confirmation_required"
+    DELETE_CONFIRMATION_REQUIRED: Final[str] = "delete_confirmation_required"
+    SOURCE_REQUIRED: Final[str] = "source_required"
+    DESTINATION_REQUIRED: Final[str] = "destination_required"
+    DESTINATION_PARENT_MISSING: Final[str] = "destination_parent_missing"
+    NOT_FOUND: Final[str] = "not_found"
+    DECODE_FAILED: Final[str] = "decode_failed"
+    PERMISSION_DENIED: Final[str] = "permission_denied"
+    BINARY_FILE: Final[str] = "binary_file"
+    INVALID_WRITE_MODE: Final[str] = "invalid_write_mode"
+    SAME_PATH: Final[str] = "same_path"
+    RECURSIVE_DESTINATION: Final[str] = "recursive_destination"
+    DESTINATION_EXISTS: Final[str] = "destination_exists"
+    REPLACE_FAILED: Final[str] = "replace_failed"
+    COPY_FAILED: Final[str] = "copy_failed"
+    MOVE_FAILED: Final[str] = "move_failed"
+    MKDIR_FAILED: Final[str] = "mkdir_failed"
+    ROOT_DELETE_BLOCKED: Final[str] = "root_delete_blocked"
+    HOME_DELETE_BLOCKED: Final[str] = "home_delete_blocked"
+    DELETE_FAILED: Final[str] = "delete_failed"
+    INVALID_ACTION: Final[str] = "invalid_action"
+    SYMLINK_BLOCKED: Final[str] = "symlink_blocked"
+    WRITE_FAILED: Final[str] = "write_failed"
+    READ_TRUNCATED: Final[str] = "read_truncated"
+    BACKEND_UNAVAILABLE: Final[str] = "backend_unavailable"
+    BACKEND_ERROR: Final[str] = "backend_error"
+    BACKEND_TIMEOUT: Final[str] = "backend_timeout"
+    PATH_TRANSLATION_FAILED: Final[str] = "path_translation_failed"
+    BACKEND_TIMEOUT_PARTIAL: Final[str] = "backend_timeout_partial"
+    BACKEND_DISABLED: Final[str] = "backend_disabled"
+    RESPONSE_TOO_LARGE: Final[str] = "response_too_large"
+    INVALID_RESPONSE: Final[str] = "invalid_response"
+    SEARCH_ROOT_BLOCKED: Final[str] = "search_root_blocked"
+    CATALOG_FAILED: Final[str] = "catalog_failed"

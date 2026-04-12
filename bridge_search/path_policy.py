@@ -47,6 +47,39 @@ def looks_like_windows_abs_path(path: str) -> bool:
     return bool(_WINDOWS_ABS_PATH_RE.match(path)) or path.startswith("\\\\") or path.startswith("//")
 
 
+def _split_prefix_blob(raw: str) -> List[str]:
+    """Split an env prefix list on ':' or ';' without breaking Windows drive letters."""
+    parts: List[str] = []
+    current: List[str] = []
+    for idx, ch in enumerate(raw):
+        if ch in ":;":
+            next_ch = raw[idx + 1] if idx + 1 < len(raw) else ""
+            current_text = "".join(current).strip()
+            is_drive_colon = ch == ":" and len(current_text) == 1 and current_text.isalpha() and next_ch in ("\\", "/")
+            if is_drive_colon:
+                current.append(ch)
+                continue
+            part = current_text
+            if part:
+                parts.append(part)
+            current = []
+            continue
+        current.append(ch)
+    tail = "".join(current).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def normalize_policy_prefix(path: str) -> Optional[str]:
+    """Normalize allowlist and denylist prefixes into the same path form used at runtime."""
+    if not isinstance(path, str) or not path.strip():
+        return None
+    raw = os.path.expanduser(path.strip())
+    translated = resolve_path(raw, "wsl") if looks_like_windows_abs_path(raw) else raw
+    return canonical_path(translated)
+
+
 def auto_target_env(path: str) -> str:
     """Infer the translation direction for a mixed Windows/WSL path input."""
     if looks_like_windows_abs_path(path):
@@ -99,10 +132,10 @@ def _restricted_prefixes() -> Tuple[str, ...]:
         extra = sec.get("custom_restricted_prefixes") or []
         out: List[str] = []
         for p in extra:
-            if not isinstance(p, str) or not p.strip():
+            normalized = normalize_policy_prefix(p)
+            if normalized is None:
                 continue
-            exp = os.path.expanduser(p.strip())
-            out.append(canonical_path(exp).lower())
+            out.append(normalized.lower())
         return tuple(dict.fromkeys(out)) if out else _RESTRICTED_DEFAULT
     return _RESTRICTED_DEFAULT
 
@@ -112,11 +145,11 @@ def parse_allowed_prefixes_env() -> Optional[List[str]]:
     if not raw:
         return None
     out: List[str] = []
-    for part in raw.split(":"):
-        p = part.strip()
-        if not p:
+    for part in _split_prefix_blob(raw):
+        normalized = normalize_policy_prefix(part)
+        if normalized is None:
             continue
-        out.append(canonical_path(os.path.expanduser(p)))
+        out.append(normalized)
     return out if out else None
 
 
@@ -125,9 +158,10 @@ def allowed_prefixes_merged() -> Optional[List[str]]:
     from_file: List[str] = []
     if isinstance(raw, list):
         for p in raw:
-            if not isinstance(p, str) or not p.strip():
+            normalized = normalize_policy_prefix(p)
+            if normalized is None:
                 continue
-            from_file.append(canonical_path(os.path.expanduser(p.strip())))
+            from_file.append(normalized)
     env_list = parse_allowed_prefixes_env() or []
     merged: List[str] = []
     for p in from_file + env_list:

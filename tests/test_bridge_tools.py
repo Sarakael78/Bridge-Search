@@ -29,6 +29,48 @@ def test_everything_search_arg_partial_wraps() -> None:
     assert search_backends._everything_search_arg("  bar  ", False) == "*bar*"
 
 
+def test_parse_allowed_prefixes_env_supports_windows_drive_letters(monkeypatch) -> None:
+    mapping = {r"C:\Users\david\Documents": "/mnt/c/Users/david/Documents"}
+    monkeypatch.setenv("BRIDGE_SEARCH_ALLOWED_PREFIXES", r"C:\Users\david\Documents;/tmp/work")
+    monkeypatch.setattr(path_policy, "resolve_path", lambda path, env: mapping.get(path, path))
+    assert path_policy.parse_allowed_prefixes_env() == ["/mnt/c/Users/david/Documents", "/tmp/work"]
+
+
+def test_allowed_prefixes_config_supports_windows_paths(monkeypatch, tmp_path) -> None:
+    mapping = {r"C:\Users\david\Documents": "/mnt/c/Users/david/Documents"}
+    config_path = tmp_path / "bridge-search.config.json"
+    config_path.write_text(
+        json.dumps({"security": {"allowed_prefixes": [r"C:\Users\david\Documents"]}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BRIDGE_SEARCH_CONFIG", str(config_path))
+    monkeypatch.setattr(path_policy, "resolve_path", lambda path, env: mapping.get(path, path))
+    bridge_config.get_bridge_config(reload=True)
+    assert path_policy.is_path_allowed("/mnt/c/Users/david/Documents/note.txt", "wsl") is True
+    assert path_policy.is_path_allowed("/mnt/c/Users/david/Desktop/note.txt", "wsl") is False
+
+
+def test_custom_restricted_prefixes_support_windows_paths(monkeypatch, tmp_path) -> None:
+    mapping = {r"C:\Users\david\Secret": "/mnt/c/Users/david/Secret"}
+    config_path = tmp_path / "bridge-search.config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "security": {
+                    "path_denylist": "custom",
+                    "custom_restricted_prefixes": [r"C:\Users\david\Secret"],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BRIDGE_SEARCH_CONFIG", str(config_path))
+    monkeypatch.setattr(path_policy, "resolve_path", lambda path, env: mapping.get(path, path))
+    bridge_config.get_bridge_config(reload=True)
+    assert path_policy.is_path_allowed("/mnt/c/Users/david/Secret/file.txt", "wsl") is False
+    assert path_policy.is_path_allowed("/mnt/c/Users/david/Public/file.txt", "wsl") is True
+
+
 def test_backend_enabled_env_overrides_config(monkeypatch) -> None:
     monkeypatch.delenv("BRIDGE_SEARCH_ENABLE_EVERYTHING", raising=False)
     cfg = copy.deepcopy(bridge_config._DEFAULTS)
@@ -63,6 +105,13 @@ def test_system_locator_zero_hit_is_success(monkeypatch) -> None:
     assert result["results"] == []
     assert result["errors"] == []
     assert result["meta"]["total_found"] == 0
+
+
+def test_system_locator_blank_query_is_rejected(monkeypatch) -> None:
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: True)
+    result = bridge_tools.system_locator("   ", target_env="windows")
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "query_required"
 
 
 def test_system_locator_translates_windows_results(monkeypatch) -> None:
@@ -159,6 +208,19 @@ def test_content_locator_anytxt_uses_configured_runtime_url(monkeypatch) -> None
     result = bridge_tools.content_locator("needle", target_env="windows")
     assert seen["url"] == "http://winhost:9921/api/search?q=needle"
     assert result["results"][0]["path"] == "/mnt/c/Users/david/memo.txt"
+
+
+def test_content_locator_blank_query_is_rejected(monkeypatch) -> None:
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: True)
+    result = bridge_tools.content_locator("   ", target_env="windows")
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "query_required"
+
+
+def test_wsl_grep_command_excludes_mnt_when_searching_root() -> None:
+    cmd = search_backends._wsl_grep_command("needle", "/")
+    assert "--exclude-dir=mnt" in cmd
+    assert "--exclude-dir=/mnt" not in cmd
 
 
 def test_manage_file_contract_read_and_encoding(tmp_path) -> None:
@@ -273,6 +335,30 @@ def test_map_directory_contract(tmp_path) -> None:
     assert "a.txt" in result["results"][0]["text"]
 
 
+def test_map_directory_exact_page_reports_no_more(tmp_path) -> None:
+    root = tmp_path / "folder"
+    root.mkdir()
+    (root / "a.txt").write_text("x", encoding="utf-8")
+    result = bridge_tools.catalog_directory(str(root), limit=2)
+    assert result["meta"]["total_found"] == 2
+    assert result["meta"]["returned_count"] == 2
+    assert result["meta"]["has_more"] is False
+    assert "truncated" not in result["meta"]
+
+
+def test_map_directory_page_boundary_reports_more(tmp_path) -> None:
+    root = tmp_path / "folder"
+    root.mkdir()
+    (root / "a.txt").write_text("x", encoding="utf-8")
+    (root / "b.txt").write_text("y", encoding="utf-8")
+    result = bridge_tools.catalog_directory(str(root), limit=2)
+    assert result["meta"]["total_found"] == 3
+    assert result["meta"]["returned_count"] == 2
+    assert result["meta"]["has_more"] is True
+    assert result["meta"]["truncated"] is True
+    assert result["meta"]["total_found_is_lower_bound"] is True
+
+
 def test_integration_like_everything_error(monkeypatch) -> None:
     monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: "/fake/es.exe")
     monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "everything")
@@ -321,6 +407,21 @@ def test_backend_timeout_surfaces_structured_error(monkeypatch) -> None:
 
     monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
     result = bridge_tools.system_locator("x", target_env="windows")
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "backend_timeout"
+
+
+def test_anytxt_timeout_surfaces_structured_timeout(monkeypatch) -> None:
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "anytxt")
+
+    class TimeoutLike(TimeoutError):
+        pass
+
+    def fake_urlopen(req, timeout=5):
+        raise TimeoutLike("timed out")
+
+    monkeypatch.setattr(search_backends.urllib.request, "urlopen", fake_urlopen)
+    result = bridge_tools.content_locator("needle", target_env="windows")
     assert result["success"] is False
     assert result["errors"][0]["code"] == "backend_timeout"
 

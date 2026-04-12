@@ -32,19 +32,28 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
    - Accept a "zero-hit" from Everything as **no match in Everything’s indexed scope** for that query (usually “not found” unless indexing lag, wrong filters, or path outside indexed locations—see Guardrails).
 6. Default search scope should be the current Windows user’s document-style folders, for example under the profile (e.g. `%USERPROFILE%\Documents`, `%USERPROFILE%\Desktop`, `%USERPROFILE%\Downloads`). Adjust to the user’s actual layout when known.
 
+## Tool selection
+
+- **`locate_file_or_folder`**: filename/path search. Default to **`target_env=windows`** for Windows files. Query text must not be blank.
+- **`locate_content_inside_files`**: indexed content search. Use **`target_env=windows`** for AnyTXT-only searches and **`everywhere`** when you intentionally want WSL grep too. Query text must not be blank.
+- **`map_directory`**: get scoped structure before broad file operations or when you need pagination through a tree.
+- **`manage_file`**: read, write, copy, move, delete, and mkdir with policy checks and explicit mutation semantics.
+- **`get_health`**: diagnose backend reachability before inventing workarounds.
+
 ## Guardrails
 
 - **The Absolute Zero Rule:** If Everything (`es.exe`) returns no hits for a filename query, **STOP**. Do not escalate to a slower brute-force `find` or `grep` on `/mnt/c/`. A zero is a high-signal “no match” for that query in the indexer **unless** the human says Everything is still indexing, the file lives outside indexed paths, or the query/filters were wrong—in those cases, refine the query or scope; still do not brute-force `/mnt/c`.
 - **Bridge-Only Execution:** Use `manage_file`, `map_directory`, `locate_file_or_folder`, and `locate_content_inside_files` for all operations. Do not hand-roll path conversions or shell commands.
+- **Query validation:** Blank or whitespace-only queries are rejected with **`query_required`**. Do not use empty searches to probe backends.
 - **Encoding & Quoting:** The bridge tools handle Windows path quoting and `cp1252` encoding. Manual `run_shell_command` calls are likely to fail on paths with spaces or special characters.
 - **AnyTXT is a Service:** Treat AnyTXT as a networked local service. If search fails, debug the service state or port **9921**, not the local filesystem.
 - **Structured results:** All bridge tools return **`success`**, **`results`**, **`errors`**, **`warnings`**, and **`meta`**. Issues include stable machine-readable **`code`** fields. A clean zero-hit search is **not** an error.
 - **Privacy & Noise:** Ignore `AppData`, browser profiles, `node_modules`, and caches unless explicitly instructed otherwise.
-- **Path policy:** Reads, writes, `map_directory`, and WSL grep roots honor the same **denylist** (resolved paths under `/etc`, `/mnt/c/Windows`, `/usr`, `/var`, etc. are blocked). Optional **`BRIDGE_SEARCH_ALLOWED_PREFIXES`** (`:`-separated) and config **`allowed_prefixes`** restrict file operations to those prefixes and, when set, **filter search tool result rows** (Everything/`find`, WSL `grep`, AnyTXT) to matching paths.
+- **Path policy:** Reads, writes, `map_directory`, and WSL grep roots honor the same **denylist** (resolved paths under `/etc`, `/mnt/c/Windows`, `/usr`, `/var`, etc. are blocked). Optional **`BRIDGE_SEARCH_ALLOWED_PREFIXES`** and config **`allowed_prefixes`** restrict file operations to those prefixes and, when set, **filter search tool result rows** (Everything/`find`, WSL `grep`, AnyTXT) to matching paths. The env parser accepts `:` or `;`; prefer `;` when any Windows-style `C:\...` path is present. Config entries may be WSL or Windows absolute paths.
 - **Confirmation flag:** `is_confirmed` is an **agent workflow** toggle—not authorization, not cryptographic proof of human approval, and **not a substitute for OS-level approval**. All **writes** and **deletes** still require it so the model explicitly opts in.
 - **Safer file mutations:** `manage_file` will not overwrite existing destinations on copy/move unless `overwrite=True`, refuses source==destination and directory-into-itself operations, and refuses deletion of filesystem root or the current home directory.
 - **Encoding & symlinks:** `manage_file(read)` tries common text encodings (`utf-8`, BOM variants, `utf-16`, `cp1252`) before failing. Mutating operations (`write`, `copy`, `move`, `mkdir`) are blocked on symlink paths; if you really mean the target, resolve and pass the real path explicitly. `delete` removes the symlink itself.
-- **WSL grep default root:** Empty `wsl_search_path` uses **`$HOME`**. Grep from **`/`** needs **`allow_grep_from_filesystem_root`** in `config/bridge-search.config.json` or **`BRIDGE_SEARCH_ALLOW_ROOT_GREP=1`**.
+- **WSL grep default root:** Empty `wsl_search_path` uses **`$HOME`**. Grep from **`/`** needs **`allow_grep_from_filesystem_root`** in `config/bridge-search.config.json` or **`BRIDGE_SEARCH_ALLOW_ROOT_GREP=1`**. When root grep is allowed, the bridge still avoids traversing `/mnt`.
 - **Config file:** Optional **`config/bridge-search.config.json`** (see `config/bridge-search.config.example.json`) adjusts denylist strength, confirmation flags, grep-from-root, and resource caps without editing Python. Example files include **`_security_warning`**: relaxing settings is **at your own risk** (see README for what can go wrong).
 
 ## Integration: Legal Research

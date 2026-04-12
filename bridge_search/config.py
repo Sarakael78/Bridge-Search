@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import copy
+import functools
 import json
 import os
 import sys
 import urllib.parse
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 _DEFAULTS: Dict[str, Any] = {
     "version": 1,
@@ -27,6 +28,7 @@ _DEFAULTS: Dict[str, Any] = {
         "max_locator_results": 5000,
         "anytxt_max_response_bytes": 2097152,
         "command_timeout_seconds": 10,
+        "max_read_bytes": 1048576,
     },
     "backends": {"everything": True, "anytxt": True, "wsl_find": True, "wsl_grep": True},
 }
@@ -37,9 +39,6 @@ _BACKEND_ENV = {
     "wsl_find": "BRIDGE_SEARCH_ENABLE_WSL_FIND",
     "wsl_grep": "BRIDGE_SEARCH_ENABLE_WSL_GREP",
 }
-
-_cfg_cache: Optional[Dict[str, Any]] = None
-
 
 def get_wsl_host_ip() -> Optional[str]:
     """Auto-discover the Windows host IP from /etc/resolv.conf in WSL2."""
@@ -98,13 +97,9 @@ def config_paths() -> List[str]:
     return [os.path.join(root, "config", "bridge-search.config.json")]
 
 
-def get_bridge_config(reload: bool = False) -> Dict[str, Any]:
-    """Load and cache merged bridge configuration from defaults and the first config file found."""
-    global _cfg_cache
-    if _cfg_cache is not None and not reload:
-        return _cfg_cache
+def _load_bridge_config(paths: Tuple[str, ...]) -> Dict[str, Any]:
     merged = copy.deepcopy(_DEFAULTS)
-    for path in config_paths():
+    for path in paths:
         if not os.path.isfile(path):
             continue
         try:
@@ -115,8 +110,19 @@ def get_bridge_config(reload: bool = False) -> Dict[str, Any]:
         except (OSError, json.JSONDecodeError, TypeError) as exc:
             print(f"bridge-search: warning: could not load {path}: {exc}", file=sys.stderr)
         break
-    _cfg_cache = merged
-    return _cfg_cache
+    return merged
+
+
+@functools.lru_cache(maxsize=None)
+def _cached_bridge_config(paths: Tuple[str, ...]) -> Dict[str, Any]:
+    return _load_bridge_config(paths)
+
+
+def get_bridge_config(reload: bool = False) -> Dict[str, Any]:
+    """Load and cache merged bridge configuration from defaults and the first config file found."""
+    if reload:
+        _cached_bridge_config.cache_clear()
+    return _cached_bridge_config(tuple(config_paths()))
 
 
 def lim(key: str) -> int:

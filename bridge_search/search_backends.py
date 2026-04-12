@@ -4,12 +4,14 @@ import json
 import os
 import re
 import subprocess
+import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
 
 from .config import anytxt_search_url, backend_enabled, command_timeout_seconds, get_bridge_config, get_wsl_host_ip, lim
+from .constants import ErrorCodes
 from .file_ops import clamp_int
 from .path_policy import allowlist_filters_search_results, canonical_path, is_path_allowed, looks_like_windows_abs_path, path_allowed_for_search_result, resolve_path
 from .result_models import error_response, make_issue, success_response
@@ -37,6 +39,39 @@ def _get_effective_anytxt_urls() -> List[str]:
 
 def _subprocess_timeout() -> float:
     return command_timeout_seconds()
+
+
+def _normalized_query(query: str) -> str:
+    return (query or "").strip()
+
+
+def _query_required_response(*, source: str, meta: Dict[str, Any]) -> Dict[str, Any]:
+    return error_response(
+        code=ErrorCodes.QUERY_REQUIRED,
+        message="Query must not be blank.",
+        source=source,
+        meta=meta,
+    )
+
+
+def _wsl_grep_command(query: str, root: str) -> List[str]:
+    cmd = ["grep", "-rni", "-m", "2"]
+    # grep matches --exclude-dir against basenames, so use `mnt` when searching from `/`.
+    if canonical_path(root).rstrip(os.sep) == "":
+        cmd.append("--exclude-dir=mnt")
+    cmd.extend(["-F", "-e", query, "--", root])
+    return cmd
+
+
+def _is_timeout_error(exc: BaseException) -> bool:
+    if isinstance(exc, TimeoutError):
+        return True
+    if isinstance(exc, urllib.error.URLError):
+        reason = getattr(exc, "reason", None)
+        if isinstance(reason, TimeoutError):
+            return True
+        return "timed out" in str(reason).lower()
+    return "timed out" in str(exc).lower()
 
 
 def grep_line_file_path(grep_line: str) -> Optional[str]:
@@ -184,6 +219,9 @@ def system_locator(query: str, target_env: str = "windows", exact_match: bool = 
     run_everything = wants_win and backend_enabled("everything")
     run_wsl_find = wants_wsl and backend_enabled("wsl_find")
     meta: Dict[str, Any] = {"filename_backends": {"everything": run_everything, "wsl_find": run_wsl_find}, "offset": offset, "limit": limit}
+    query = _normalized_query(query)
+    if not query:
+        return _query_required_response(source="locator", meta=meta)
     if not run_everything and not run_wsl_find:
         return error_response(code="backend_disabled", message="No filename search backend enabled for this target_env.", source="locator", meta=meta)
     results: List[Dict[str, Any]] = []
@@ -297,6 +335,22 @@ def system_locator(query: str, target_env: str = "windows", exact_match: bool = 
             if f_truncated:
                 truncated = True
 
+    # Deduplicate results (Everything + WSL find can return the same path)
+    deduped_results: List[Dict[str, Any]] = []
+    seen_paths: dict[str, str] = {}
+    duplicates_skipped = 0
+    for row in results:
+        norm = canonical_path(row["path"])
+        seen_source = seen_paths.get(norm)
+        if seen_source is not None and seen_source != row.get("source"):
+            duplicates_skipped += 1
+            continue
+        seen_paths.setdefault(norm, row.get("source", ""))
+        deduped_results.append(row)
+    results = deduped_results
+    if duplicates_skipped:
+        meta["duplicate_hits_ignored"] = duplicates_skipped
+
     meta["has_more"] = len(results) > limit if meta.get("everything_native_paging") else len(results) > offset + limit
     if truncated or meta.get("everything_native_paging"):
         meta["total_found_is_lower_bound"] = True
@@ -336,6 +390,9 @@ def content_locator(query: str, target_env: str = "everywhere", wsl_search_path:
     run_wsl = wants_wsl and backend_enabled("wsl_grep")
     run_anytxt = wants_anytxt and backend_enabled("anytxt")
     meta: Dict[str, Any] = {"content_backends": {"wsl_grep": run_wsl, "anytxt": run_anytxt}, "offset": offset, "limit": limit, "anytxt_url": anytxt_search_url() if run_anytxt else None}
+    query = _normalized_query(query)
+    if not query:
+        return _query_required_response(source="content-locator", meta=meta)
     if not run_wsl and not run_anytxt:
         return error_response(code="backend_disabled", message="No content-search backend enabled for this target_env.", source="content-locator", meta=meta)
     results: List[Dict[str, Any]] = []
@@ -376,13 +433,15 @@ def content_locator(query: str, target_env: str = "everywhere", wsl_search_path:
                         used_url = url
                         anytxt_ok = True
                         break
-            except (OSError, json.JSONDecodeError) as exc:
+            except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
                 last_err = exc
                 continue
         
         if not anytxt_ok and last_err:
             if isinstance(last_err, json.JSONDecodeError):
                 a_errors.append(make_issue(code="invalid_response", message=f"Invalid JSON ({last_err})", source="windows-anytxt"))
+            elif _is_timeout_error(last_err):
+                a_errors.append(make_issue(code="backend_timeout", message="AnyTXT query timed out.", source="windows-anytxt"))
             else:
                 a_errors.append(make_issue(code="backend_error", message=str(last_err), source="windows-anytxt"))
         return a_results, a_errors, a_warnings, used_url
@@ -396,7 +455,7 @@ def content_locator(query: str, target_env: str = "everywhere", wsl_search_path:
             if not ok:
                 g_errors.append(make_issue(code="search_root_blocked", message=root, source="wsl-grep", path=eff_root))
             else:
-                cmd = ["grep", "-rni", "-m", "2", "--exclude-dir=/mnt", "-F", "-e", query, "--", root]
+                cmd = _wsl_grep_command(query, root)
                 process = subprocess.run(cmd, capture_output=True, text=True, timeout=_subprocess_timeout())
                 if process.stdout:
                     for line in process.stdout.strip().split("\n"):

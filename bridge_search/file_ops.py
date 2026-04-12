@@ -5,11 +5,20 @@ import shutil
 from typing import Any, Dict, List, Optional, Tuple
 
 from .config import get_bridge_config, lim
+from .constants import Actions, ErrorCodes
 from .path_policy import canonical_path, is_path_allowed, resolve_path
-from .result_models import error_response, success_response
+from .result_models import error_response, make_issue, success_response
 
 _TEXT_READ_ENCODINGS: Tuple[str, ...] = ("utf-8", "utf-8-sig", "cp1252")
 _WRITE_MODES = {"replace", "append"}
+_MUTABLE_ACTIONS = {
+    Actions.READ,
+    Actions.WRITE,
+    Actions.COPY,
+    Actions.MOVE,
+    Actions.DELETE,
+    Actions.MKDIR,
+}
 
 
 def clamp_int(value: int, low: int, high: int) -> int:
@@ -41,26 +50,30 @@ def is_binary_file(filepath: str) -> bool:
         return False
 
 
-def read_text_with_fallbacks(filepath: str) -> Tuple[bool, str, Optional[str]]:
+def read_text_with_fallbacks(filepath: str) -> Tuple[bool, str, Optional[str], bool]:
     """Read text using a small set of pragmatic encoding fallbacks."""
+    max_bytes = max(1, lim("max_read_bytes"))
     try:
         with open(filepath, "rb") as handle:
-            raw = handle.read()
+            raw = handle.read(max_bytes + 1)
     except OSError:
-        return False, "", None
+        return False, "", None, False
+    truncated = len(raw) > max_bytes
+    if truncated:
+        raw = raw[:max_bytes]
     if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
         try:
-            return True, raw.decode("utf-16"), "utf-16"
+            return True, raw.decode("utf-16"), "utf-16", truncated
         except UnicodeDecodeError:
-            return False, "", None
+            return False, "", None, truncated
     if b"\x00" in raw and not raw.startswith((b"\xef\xbb\xbf",)):
-        return False, "", None
+        return False, "", None, truncated
     for encoding in _TEXT_READ_ENCODINGS:
         try:
-            return True, raw.decode(encoding), encoding
+            return True, raw.decode(encoding), encoding, truncated
         except UnicodeDecodeError:
             continue
-    return False, "", None
+    return False, "", None, truncated
 
 
 def symlink_policy_error(action: str, path: str) -> Optional[Dict[str, Any]]:
@@ -70,7 +83,7 @@ def symlink_policy_error(action: str, path: str) -> Optional[Dict[str, Any]]:
     if action in ("read", "delete"):
         return None
     return error_response(
-        code="symlink_blocked",
+        code=ErrorCodes.SYMLINK_BLOCKED,
         message="Symlink policy blocked this operation. Use the resolved target path explicitly for write/copy/move/mkdir.",
         path=path,
     )
@@ -106,43 +119,43 @@ def hybrid_file_io(
         "write_mode": normalized_write_mode,
     }
 
-    if action == "write" and normalized_write_mode not in _WRITE_MODES:
+    if action == Actions.WRITE and normalized_write_mode not in _WRITE_MODES:
         return error_response(
-            code="invalid_write_mode",
+            code=ErrorCodes.INVALID_WRITE_MODE,
             message="write_mode must be 'replace' or 'append'",
             path=source_path,
             meta=meta,
         )
 
-    if action in ["read", "write", "copy", "move", "delete", "mkdir"]:
+    if action in _MUTABLE_ACTIONS:
         if not is_path_allowed(source_path, target_env):
-            return error_response(code="path_blocked", message="Access to protected path blocked.", path=source_path, meta=meta)
-        if destination_path and action in ["copy", "move"] and not is_path_allowed(destination_path, target_env):
-            return error_response(code="path_blocked", message="Access to protected destination path blocked.", path=destination_path, meta=meta)
+            return error_response(code=ErrorCodes.PATH_BLOCKED, message="Access to protected path blocked.", path=source_path, meta=meta)
+        if destination_path and action in {Actions.COPY, Actions.MOVE} and not is_path_allowed(destination_path, target_env):
+            return error_response(code=ErrorCodes.PATH_BLOCKED, message="Access to protected destination path blocked.", path=destination_path, meta=meta)
 
     sec = get_bridge_config().get("security", {})
-    if action == "write" and not is_confirmed and sec.get("require_confirm_for_writes", True):
-        return error_response(code="write_confirmation_required", message="WRITE BLOCKED. Pass is_confirmed=True after reviewing the target path.", path=source_path, meta=meta)
-    if action == "delete" and not is_confirmed and sec.get("require_confirm_for_deletes", True):
-        return error_response(code="delete_confirmation_required", message="DESTRUCTIVE ACTION BLOCKED. Pass is_confirmed=True to delete.", path=source_path, meta=meta)
+    if action == Actions.WRITE and not is_confirmed and sec.get("require_confirm_for_writes", True):
+        return error_response(code=ErrorCodes.WRITE_CONFIRMATION_REQUIRED, message="WRITE BLOCKED. Pass is_confirmed=True after reviewing the target path.", path=source_path, meta=meta)
+    if action == Actions.DELETE and not is_confirmed and sec.get("require_confirm_for_deletes", True):
+        return error_response(code=ErrorCodes.DELETE_CONFIRMATION_REQUIRED, message="DESTRUCTIVE ACTION BLOCKED. Pass is_confirmed=True to delete.", path=source_path, meta=meta)
 
     def validate_existing_source() -> Optional[Dict[str, Any]]:
         if not src:
-            return error_response(code="source_required", message="Source path required", meta=meta)
+            return error_response(code=ErrorCodes.SOURCE_REQUIRED, message="Source path required", meta=meta)
         if not os.path.lexists(src):
-            return error_response(code="not_found", message="Source path not found", path=source_path, meta=meta)
+            return error_response(code=ErrorCodes.NOT_FOUND, message="Source path not found", path=source_path, meta=meta)
         return symlink_policy_error(action, src)
 
     def validate_destination() -> Optional[Dict[str, Any]]:
         if not dst:
-            return error_response(code="destination_required", message="Destination required", meta=meta)
+            return error_response(code=ErrorCodes.DESTINATION_REQUIRED, message="Destination required", meta=meta)
         if os.path.lexists(dst):
             blocked = symlink_policy_error(action, dst)
             if blocked is not None:
                 return blocked
         parent = os.path.dirname(dst_canon) or os.getcwd()
         if not os.path.isdir(parent):
-            return error_response(code="destination_parent_missing", message="Destination parent directory does not exist", path=destination_path, meta=meta)
+            return error_response(code=ErrorCodes.DESTINATION_PARENT_MISSING, message="Destination parent directory does not exist", path=destination_path, meta=meta)
         blocked = symlink_policy_error(action, parent)
         if blocked is not None:
             return blocked
@@ -162,29 +175,37 @@ def hybrid_file_io(
         else:
             os.remove(path)
 
-    if action == "read":
+    if action == Actions.READ:
         if not os.path.exists(src):
-            return error_response(code="not_found", message="File not found", path=source_path, meta=meta)
-        ok, text, encoding = read_text_with_fallbacks(src)
+            return error_response(code=ErrorCodes.NOT_FOUND, message="File not found", path=source_path, meta=meta)
+        ok, text, encoding, truncated = read_text_with_fallbacks(src)
         if ok:
+            if truncated:
+                warnings.append(
+                    make_issue(
+                        code=ErrorCodes.READ_TRUNCATED,
+                        message=f"File size exceeded lim(max_read_bytes) ({lim('max_read_bytes')} bytes); returning truncated content.",
+                        path=source_path,
+                    )
+                )
             return success_response(results=[_file_result("read", src, source_path=source_path, content=text, encoding=encoding)], warnings=warnings, meta=meta)
         if is_binary_file(src):
-            return error_response(code="binary_file", message="Cannot read binary file as text.", path=source_path, meta=meta)
+            return error_response(code=ErrorCodes.BINARY_FILE, message="Cannot read binary file as text.", path=source_path, meta=meta)
         try:
             with open(src, "rb"):
                 pass
         except PermissionError:
-            return error_response(code="permission_denied", message="Permission denied. The file may be locked by another process.", path=source_path, meta=meta)
-        return error_response(code="decode_failed", message="Could not decode file as supported text (utf-8, utf-16, cp1252).", path=source_path, meta=meta)
+            return error_response(code=ErrorCodes.PERMISSION_DENIED, message="Permission denied. The file may be locked by another process.", path=source_path, meta=meta)
+        return error_response(code=ErrorCodes.DECODE_FAILED, message="Could not decode file as supported text (utf-8, utf-16, cp1252).", path=source_path, meta=meta)
 
-    if action == "write":
+    if action == Actions.WRITE:
         blocked = symlink_policy_error(action, src)
         if blocked is not None:
             return blocked
         parent = os.path.dirname(src_canon) or os.getcwd()
         if not os.path.isdir(parent):
             return error_response(
-                code="destination_parent_missing",
+                code=ErrorCodes.DESTINATION_PARENT_MISSING,
                 message="Destination parent directory does not exist",
                 path=source_path,
                 meta=meta,
@@ -211,27 +232,27 @@ def hybrid_file_io(
                 meta=meta,
             )
         except PermissionError:
-            return error_response(code="permission_denied", message="Permission denied. File is locked or requires elevated privileges.", path=source_path, meta=meta)
+            return error_response(code=ErrorCodes.PERMISSION_DENIED, message="Permission denied. File is locked or requires elevated privileges.", path=source_path, meta=meta)
         except FileNotFoundError:
-            return error_response(code="destination_parent_missing", message="Destination parent directory does not exist", path=source_path, meta=meta)
+            return error_response(code=ErrorCodes.DESTINATION_PARENT_MISSING, message="Destination parent directory does not exist", path=source_path, meta=meta)
         except OSError as exc:
-            return error_response(code="write_failed", message=str(exc), path=source_path, meta=meta)
+            return error_response(code=ErrorCodes.WRITE_FAILED, message=str(exc), path=source_path, meta=meta)
 
     if action == "copy":
         problem = validate_existing_source() or validate_destination()
         if problem:
             return problem
         if paths_conflict():
-            return error_response(code="same_path", message="Source and destination resolve to the same path", path=source_path, meta=meta)
+            return error_response(code=ErrorCodes.SAME_PATH, message="Source and destination resolve to the same path", path=source_path, meta=meta)
         if destination_inside_source():
-            return error_response(code="recursive_destination", message="Refusing to copy a directory into itself", path=destination_path, meta=meta)
+            return error_response(code=ErrorCodes.RECURSIVE_DESTINATION, message="Refusing to copy a directory into itself", path=destination_path, meta=meta)
         if os.path.exists(dst_canon):
             if not overwrite:
-                return error_response(code="destination_exists", message="Destination already exists. Pass overwrite=True to replace it.", path=destination_path, meta=meta)
+                return error_response(code=ErrorCodes.DESTINATION_EXISTS, message="Destination already exists. Pass overwrite=True to replace it.", path=destination_path, meta=meta)
             try:
                 safe_remove(dst_canon)
             except OSError as exc:
-                return error_response(code="replace_failed", message=f"Could not replace existing destination: {exc}", path=destination_path, meta=meta)
+                return error_response(code=ErrorCodes.REPLACE_FAILED, message=f"Could not replace existing destination: {exc}", path=destination_path, meta=meta)
         try:
             if os.path.isdir(src_canon) and not os.path.islink(src_canon):
                 shutil.copytree(src_canon, dst_canon, symlinks=True)
@@ -241,28 +262,28 @@ def hybrid_file_io(
                 kind = "file"
             return success_response(results=[_file_result("copy", dst_canon, source_path=src_canon, destination_path=dst_canon, kind=kind)], warnings=warnings, meta=meta)
         except OSError as exc:
-            return error_response(code="copy_failed", message=str(exc), path=destination_path, meta=meta)
+            return error_response(code=ErrorCodes.COPY_FAILED, message=str(exc), path=destination_path, meta=meta)
 
     if action == "move":
         problem = validate_existing_source() or validate_destination()
         if problem:
             return problem
         if paths_conflict():
-            return error_response(code="same_path", message="Source and destination resolve to the same path", path=source_path, meta=meta)
+            return error_response(code=ErrorCodes.SAME_PATH, message="Source and destination resolve to the same path", path=source_path, meta=meta)
         if destination_inside_source():
-            return error_response(code="recursive_destination", message="Refusing to move a directory into itself", path=destination_path, meta=meta)
+            return error_response(code=ErrorCodes.RECURSIVE_DESTINATION, message="Refusing to move a directory into itself", path=destination_path, meta=meta)
         if os.path.exists(dst_canon):
             if not overwrite:
-                return error_response(code="destination_exists", message="Destination already exists. Pass overwrite=True to replace it.", path=destination_path, meta=meta)
+                return error_response(code=ErrorCodes.DESTINATION_EXISTS, message="Destination already exists. Pass overwrite=True to replace it.", path=destination_path, meta=meta)
             try:
                 safe_remove(dst_canon)
             except OSError as exc:
-                return error_response(code="replace_failed", message=f"Could not replace existing destination: {exc}", path=destination_path, meta=meta)
+                return error_response(code=ErrorCodes.REPLACE_FAILED, message=f"Could not replace existing destination: {exc}", path=destination_path, meta=meta)
         try:
             shutil.move(src_canon, dst_canon)
             return success_response(results=[_file_result("move", dst_canon, source_path=src_canon, destination_path=dst_canon)], warnings=warnings, meta=meta)
         except OSError as exc:
-            return error_response(code="move_failed", message=str(exc), path=destination_path, meta=meta)
+            return error_response(code=ErrorCodes.MOVE_FAILED, message=str(exc), path=destination_path, meta=meta)
 
     if action == "mkdir":
         blocked = symlink_policy_error(action, src)
@@ -272,24 +293,24 @@ def hybrid_file_io(
             os.makedirs(src, exist_ok=True)
             return success_response(results=[_file_result("mkdir", src)], warnings=warnings, meta=meta)
         except OSError as exc:
-            return error_response(code="mkdir_failed", message=str(exc), path=source_path, meta=meta)
+            return error_response(code=ErrorCodes.MKDIR_FAILED, message=str(exc), path=source_path, meta=meta)
 
     if action == "delete":
         problem = validate_existing_source()
         if problem:
             return problem
         if src_canon.rstrip(os.sep) in ("", os.sep):
-            return error_response(code="root_delete_blocked", message="Refusing to delete filesystem root", path=source_path, meta=meta)
+            return error_response(code=ErrorCodes.ROOT_DELETE_BLOCKED, message="Refusing to delete filesystem root", path=source_path, meta=meta)
         home = canonical_path(os.path.expanduser("~")).rstrip(os.sep)
         if src_canon.rstrip(os.sep) == home:
-            return error_response(code="home_delete_blocked", message="Refusing to delete the home directory", path=source_path, meta=meta)
+            return error_response(code=ErrorCodes.HOME_DELETE_BLOCKED, message="Refusing to delete the home directory", path=source_path, meta=meta)
         try:
             safe_remove(src if os.path.islink(src) else src_canon)
             return success_response(results=[_file_result("delete", source_path, removed_path=src)], warnings=warnings, meta=meta)
         except OSError as exc:
-            return error_response(code="delete_failed", message=str(exc), path=source_path, meta=meta)
+            return error_response(code=ErrorCodes.DELETE_FAILED, message=str(exc), path=source_path, meta=meta)
 
-    return error_response(code="invalid_action", message="Invalid action", path=source_path, meta=meta)
+    return error_response(code=ErrorCodes.INVALID_ACTION, message="Invalid action", path=source_path, meta=meta)
 
 
 def catalog_directory(
@@ -314,27 +335,47 @@ def catalog_directory(
     meta: Dict[str, Any] = {"target_path": target_path, "resolved_path": resolved_path}
     
     if not is_path_allowed(target_path, effective_env):
-        return error_response(code="path_blocked", message="Path not allowed for directory mapping.", path=target_path, meta=meta)
+        return error_response(code=ErrorCodes.PATH_BLOCKED, message="Path not allowed for directory mapping.", path=target_path, meta=meta)
     if not os.path.isdir(resolved_path):
-        return error_response(code="not_found", message="Directory not found.", path=target_path, meta=meta)
+        return error_response(code=ErrorCodes.NOT_FOUND, message="Directory not found.", path=target_path, meta=meta)
     
     if include_extensions:
         include_extensions = [ext.lower() if ext.startswith(".") else f".{ext.lower()}" for ext in include_extensions]
 
     catalog_output: List[str] = []
-    truncated = False
+    total_lines = 0
+    done = False
+    hit_catalog_cap = False
+    has_more = False
+    page_end = offset + limit
+
+    def record_entry(line: str) -> bool:
+        nonlocal total_lines, done, hit_catalog_cap, has_more
+        if done:
+            return False
+        total_lines += 1
+        if offset < total_lines <= min(page_end, cap_cat):
+            catalog_output.append(line)
+        if total_lines > page_end:
+            has_more = True
+        if total_lines > cap_cat:
+            hit_catalog_cap = True
+        if has_more or hit_catalog_cap:
+            done = True
+            return False
+        return True
 
     def walk_level(current_path: str, depth: int) -> None:
-        nonlocal truncated
-        if truncated:
+        nonlocal done
+        if done:
             return
 
         try:
             with os.scandir(current_path) as it:
                 entries = sorted(it, key=lambda e: e.name.lower())
                 
-                dirs_to_process = []
-                files_to_process = []
+                dirs_to_process: List[os.DirEntry] = []
+                files_to_process: List[os.DirEntry] = []
                 for entry in entries:
                     if exclude_hidden and entry.name.startswith("."):
                         continue
@@ -351,42 +392,47 @@ def catalog_directory(
                         continue
 
                 indent = "  " * depth
-                # Files at this level
                 for f in files_to_process:
-                    if len(catalog_output) >= cap_cat:
-                        truncated = True
-                        break
-                    catalog_output.append(f"{indent}  📄 {f.name}")
+                    if not record_entry(f"{indent}  📄 {f.name}"):
+                        return
                 
-                # Dirs at this level, and recurse
                 if depth < max_depth:
                     for d in dirs_to_process:
-                        if len(catalog_output) >= cap_cat:
-                            truncated = True
-                            break
-                        catalog_output.append(f"{indent}  📂 {d.name}/")
+                        if not record_entry(f"{indent}  📂 {d.name}/"):
+                            return
                         walk_level(d.path, depth + 1)
+                        if done:
+                            return
 
         except OSError:
             pass
 
     try:
-        # Start the recursive scandir walk
         root_name = os.path.basename(resolved_path.rstrip(os.sep)) or resolved_path
-        catalog_output.append(f"📂 {root_name}/")
-        walk_level(resolved_path, 0)
+        record_entry(f"📂 {root_name}/")
+        if not done:
+            walk_level(resolved_path, 0)
 
-        paginated_output = catalog_output[offset : offset + limit]
-        meta.update({
-            "total_found": len(catalog_output),
-            "has_more": offset + limit < len(catalog_output),
-            "offset": offset,
-            "limit": limit
-        })
-        if truncated:
+        meta.update(
+            {
+                "total_found": total_lines,
+                "offset": offset,
+                "limit": limit,
+                "returned_count": len(catalog_output),
+                "has_more": has_more,
+            }
+        )
+        if has_more or hit_catalog_cap:
             meta["truncated"] = True
-            meta["note"] = f"Listing capped at {cap_cat} lines; narrow the path or max_depth."
+            meta["total_found_is_lower_bound"] = True
+            notes: List[str] = []
+            if hit_catalog_cap:
+                notes.append(f"Listing capped at {cap_cat} lines; narrow the path or max_depth.")
+            if has_more:
+                notes.append("Limit reached; increase limit/offset or narrow the path.")
+            if notes:
+                meta["note"] = " ".join(notes)
         
-        return success_response(results=[{"type": "directory_map", "path": resolved_path, "lines": paginated_output, "text": "\n".join(paginated_output)}], meta=meta)
+        return success_response(results=[{"type": "directory_map", "path": resolved_path, "lines": catalog_output, "text": "\n".join(catalog_output)}], meta=meta)
     except OSError as exc:
-        return error_response(code="catalog_failed", message=str(exc), path=target_path, meta=meta)
+        return error_response(code=ErrorCodes.CATALOG_FAILED, message=str(exc), path=target_path, meta=meta)

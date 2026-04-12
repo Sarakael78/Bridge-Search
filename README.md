@@ -63,18 +63,16 @@ Manual registration is documented under [Manual MCP Registration](#manual-mcp-re
 
 ## 🤖 For AI Agents (OpenClaw, Claude, Cursor)
 
-**If you are an AI assistant reading this**, Bridge Search provides you with specialised MCP tools to navigate the Windows/WSL file system efficiently. Because agents like OpenClaw struggle to search Windows mounts quickly, you must rely on these tools instead of shell commands.
+**If you are an AI assistant reading this**, Bridge Search provides specialised MCP tools for Windows/WSL file discovery and file operations. Use them instead of shell-searching `/mnt/c` and other Windows mounts.
 
-**Before you call these MCP tools**, read **`README.md`** (install, troubleshooting, security overview) **and** **`SKILL.md`** (full guardrails, search order, path policy, `is_confirmed`, integrations). The following is a short summary only; **`SKILL.md` is authoritative** for agent behaviour.
+**`SKILL.md` is the authoritative operational contract for agents.** It intentionally owns:
 
-### Agent Guardrails (The "Absolute Zero" Rule)
+- guardrails and the Absolute Zero rule
+- tool choice and search order
+- path policy and `is_confirmed` semantics
+- integrations with other skills
 
-As an AI using these tools, you **must** obey the following behavioural logic to save time and compute:
-
-1. **Never brute-force `/mnt/c`:** Do not use `find` or `grep` on Windows mounts. Use the `locate_file_or_folder` and `locate_content_inside_files` tools.
-2. **The Absolute Zero Rule:** When `target_env` is set to `windows`, if the `locate_file_or_folder` tool (using Everything) returns **zero hits**, you must **STOP**. Do not fall back to slow Linux `find`/`grep` commands on `/mnt/c/`. Treat a zero-hit as **no match for this query in Everything’s indexed scope**—which usually means the file is absent or not yet indexed. **Exceptions:** if the human reports Everything is still indexing, the path is outside indexed locations, or the query/filters were wrong, fix the query or scope first instead of brute-forcing `/mnt/c`.
-3. **Path translation:** Use bridge tools or `wslpath` internally; do not hand-roll path conversions.
-4. **AnyTXT is HTTP-only:** Requests use the URL pattern in `scripts/bridge_tools.py` (host `127.0.0.1`, port `9921` by default). There is no AnyTXT CLI binary in this workflow.
+Use **`README.md`** for installation, troubleshooting, configuration, and security. That split is deliberate so the agent behavior lives in one place instead of drifting across two docs.
 
 ## 🏗️ Architecture Flow
 
@@ -213,6 +211,25 @@ Important:
 }
 ```
 
+### Tool reference
+
+- `get_health()` – No parameters; reports whether Everything, AnyTXT, and the WSL helpers can be reached.
+- `locate_file_or_folder(query, target_env="windows", exact_match=False, limit=100, offset=0)` – Filename search.
+  - `query` must be non-empty; blank or whitespace-only input returns `query_required`.
+  - `target_env` = `windows`, `wsl`, or `everywhere`. Windows results call Everything, WSL results use `find`.
+  - `limit`/`offset` obey `limits.max_limit` (default 500) and `limits.max_offset` (default 50 000). Paginated responses may set `meta.total_found_is_lower_bound` when paging is capped.
+  - Results include both a normalized WSL `path` and the original `raw_path` for Windows hits.
+- `locate_content_inside_files(query, target_env="everywhere", wsl_search_path="", limit=50, offset=0)` – AnyTXT (`windows`) plus `grep` (`wsl`).
+  - `query` must be non-empty; blank or whitespace-only input returns `query_required`.
+  - `wsl_search_path` defaults to `$HOME`; use `allow_grep_from_filesystem_root` or `BRIDGE_SEARCH_ALLOW_ROOT_GREP=1` to allow `/`.
+  - Responses may include `line_number` (WSL) or `snippet`/`raw_path` for AnyTXT.
+- `map_directory(target_path, max_depth=2, include_extensions=None, exclude_hidden=True, target_env="auto", limit=100, offset=0)` – Paginated directory map.
+  - Depth capped by `limits.max_depth`, and listings stop after `limits.max_catalog_lines` entries to avoid blowing the cache.
+- `manage_file(action, source_path, destination_path=None, content=None, target_env="wsl", overwrite=False, is_confirmed=False, write_mode="replace")` – Guarded reads/writes.
+  - `action` = `read|write|copy|move|delete|mkdir`.
+  - `is_confirmed=True` is required for mutations when confirmations are enabled.
+  - `write_mode` defaults to `replace`; pass `append` when you explicitly want append semantics.
+
 ## 🚑 Troubleshooting
 
 - **AnyTXT connection errors/timeouts:** Bridge Search includes **automatic WSL2 host discovery**. It tries `127.0.0.1` and then your host IP from `/etc/resolv.conf`. Use the **`get_health`** tool to diagnose exactly which URL failed. Ensure AnyTXT Searcher → Tool → HTTP Search Service is enabled on port 9921.
@@ -230,6 +247,32 @@ We provide templates in the `config/` directory for common setups:
 - `bridge-search.config.anytxt-only.example.json` — Windows content search only.
 - `bridge-search.config.everything-and-anytxt.example.json` — Both Windows indexers enabled.
 - `bridge-search.config.relaxed.json` — A deliberately relaxed profile.
+
+### Configuration reference
+
+#### Config structure
+- `service.anytxt_url` (default `http://127.0.0.1:9921/search`). Used by AnyTXT HTTP tool calls.
+- `security.path_denylist` (`default`, `minimal`, `custom`, `none`) controls the denylist applied to search paths and file operations.
+- `security.custom_restricted_prefixes` + `security.allowed_prefixes` override the deny/allow lists you see in `path_policy.py`. Use absolute WSL paths or Windows-style `C:\...` paths; Windows entries are normalized into WSL form before policy checks.
+- `security.allow_grep_from_filesystem_root` & `security.allow_wsl_locator_from_filesystem_root` gate root-level scans.
+- `security.require_confirm_for_writes` / `security.require_confirm_for_deletes` keep `manage_file` mutations gated by `is_confirmed`.
+- `limits.*` values tune caps:
+  - `max_limit`, `max_offset` control the MCP pagination parameters.
+  - `max_depth` and `max_catalog_lines` limit `map_directory`.
+  - `max_locator_results` bounds `locate_*` backends.
+  - `anytxt_max_response_bytes` caps AnyTXT payloads.
+  - `command_timeout_seconds` is the default timeout for `es.exe`, `grep`, `wslpath`, and HTTP calls.
+  - `max_read_bytes` is the soft limit for `manage_file(read)` before a truncation warning (default 1 048 576 bytes).
+- `backends.everything`, `.anytxt`, `.wsl_find`, and `.wsl_grep` enable or disable each search backend.
+
+#### Environment overrides
+- `BRIDGE_SEARCH_CONFIG` — absolute path to a different config file.
+- `BRIDGE_SEARCH_ANYTXT_URL` — override the AnyTXT HTTP endpoint (normalized to `/search`).
+- `BRIDGE_SEARCH_CMD_TIMEOUT_SECONDS` — overrides `limits.command_timeout_seconds`.
+- `BRIDGE_SEARCH_ALLOWED_PREFIXES` — allowlist applied to both searches and file ops. The parser accepts `:` or `;`; prefer `;` when any Windows-style `C:\...` prefix is present.
+- `BRIDGE_SEARCH_ENABLE_EVERYTHING`, `BRIDGE_SEARCH_ENABLE_ANYTXT`, `BRIDGE_SEARCH_ENABLE_WSL_FIND`, `BRIDGE_SEARCH_ENABLE_WSL_GREP` — toggle each backend on/off.
+- `BRIDGE_SEARCH_ALLOW_ROOT_GREP=1` or config `allow_grep_from_filesystem_root` lets WSL `grep` run from `/`.
+- `BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR=1` or `allow_wsl_locator_from_filesystem_root` lets `locate_file_or_folder` `find` from `/`.
 
 Example configs now also expose:
 
@@ -263,7 +306,7 @@ Installer note: `setup_skill.py` no longer edits `~/.openclaw/openclaw.json` unl
 | **Protection Mechanism** | **Description** |
 | ----- | ----- |
 | **Path Denylist** | Paths are resolved via `realpath` and checked against a denylist of sensitive prefixes (e.g., `/etc`, `/mnt/c/Windows`, `/usr`). |
-| **Optional Allowlist** | Set `BRIDGE_SEARCH_ALLOWED_PREFIXES` (colon-separated absolute paths) in environment or `security.allowed_prefixes` in config. If set, operations and search results are strictly filtered to these folders. |
+| **Optional Allowlist** | Set `BRIDGE_SEARCH_ALLOWED_PREFIXES` in environment or `security.allowed_prefixes` in config. The env parser accepts `:` or `;`; prefer `;` when any `C:\...` path is present. If set, operations and search results are strictly filtered to these folders. |
 | **Confirmation Flags** | All write/delete operations require the `is_confirmed=True` flag from the agent by default. *(Note: This is a workflow check, not OS-level authorisation).* |
 | **Safer File Ops** | Copy/move require explicit overwrite opt-in, block self-targeting and copy-into-self mistakes, and delete refuses root and home-directory targets. |
 | **Encoding & Symlink Policy** | Text reads try common Windows/Unicode encodings before failing. Mutating operations are blocked on symlink paths so the agent must act on the resolved real path explicitly. |
