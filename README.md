@@ -1,4 +1,3 @@
-```markdown
 # Bridge Search 🌉
 
 Searching your Windows files (`/mnt/c`) from inside WSL2 is notoriously slow, and AI agents (like OpenClaw, Claude Desktop, Cursor, or Windsurf) often time out, get stuck, or hallucinate when forced to brute-force search across the OS boundary using standard Linux commands. 
