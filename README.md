@@ -2,7 +2,9 @@
 
 A high-performance bridge for cross-OS search and file management between WSL2 and Windows. This repository provides a **Skill** for behavioral guardrails and an **MCP Server** for technical execution.
 
-**GitHub:** [`Sarakael78/wsl-windows-search`](https://github.com/Sarakael78/wsl-windows-search) — rename the repository on GitHub to **`Bridge-Search`** when you want the URL and default clone folder to match that name; then update `git remote` and any bookmarks.
+**Same codebase — two names:** this GitHub repository is **`wsl-windows-search`** (clone URL and folder name follow that slug). The skill / MCP identifier is **`bridge-search`**; config files use the **`bridge-search.config.json`** prefix. Renaming the repo on GitHub to **`Bridge-Search`** is optional; if you do, run `git remote set-url` and update bookmarks.
+
+**GitHub:** [`Sarakael78/wsl-windows-search`](https://github.com/Sarakael78/wsl-windows-search)
 
 ---
 
