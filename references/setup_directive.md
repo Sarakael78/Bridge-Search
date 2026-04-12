@@ -1,4 +1,4 @@
-**Canonical source:** The maintained implementation is `scripts/bridge_tools.py` and `scripts/server.py` in this repository (plus `bridge-search.config.example.json`). The material below is historical reference; when they disagree with the scripts, trust the scripts.
+**Canonical source:** The maintained implementation is `scripts/bridge_tools.py` and `scripts/server.py` in this repository (plus `config/bridge-search.config.example.json`). The material below is historical reference; when they disagree with the scripts, trust the scripts.
 
 ---
 

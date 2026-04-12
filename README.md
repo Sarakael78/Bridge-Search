@@ -2,7 +2,7 @@
 
 Fast **filename** and **full-text** search across WSL2 and Windows without brute-force scanning **`/mnt/c`**. This repo ships an **[OpenClaw](https://openclaw.ai/) Skill** (behavioral guardrails; other MCP hosts can use the server alone) and an **MCP server** (`scripts/server.py`) that talks to **[Voidtools Everything](https://www.voidtools.com/)** and **[AnyTXT Searcher](https://anytxt.net/)** over the host boundary.
 
-**Repository:** [`Sarakael78/Bridge-Search`](https://github.com/Sarakael78/Bridge-Search) — MCP / skill id **`bridge-search`**, optional policy file **`bridge-search.config.json`** (default checkout folder **`Bridge-Search`**).
+**Repository:** [`Sarakael78/Bridge-Search`](https://github.com/Sarakael78/Bridge-Search) — MCP / skill id **`bridge-search`**, optional policy file **`config/bridge-search.config.json`** (default checkout folder **`Bridge-Search`**).
 
 **Audience:** This workflow targets **WSL2** on a machine that also runs **Windows** with the optional indexer apps below. It is **not** aimed at macOS-only or Linux-only hosts without a paired Windows volume and tools.
 
@@ -41,7 +41,7 @@ WSL2’s Plan 9–style `/mnt/c` access is fine for occasional files but painful
 
 ## Search backends (Everything, AnyTXT, WSL)
 
-You can run **only** what you need. Set **`backends`** in **`bridge-search.config.json`** (copy from **`bridge-search.config.example.json`**) or use per-process env vars.
+You can run **only** what you need. Set **`backends`** in **`config/bridge-search.config.json`** (copy from **`config/bridge-search.config.example.json`**) or use per-process env vars.
 
 | Goal | Config hint |
 |------|----------------|
@@ -142,17 +142,17 @@ The MCP process runs with your user privileges. Controls are **defense in depth*
 
 ### Configuration file (relax or tighten policy)
 
-Place **`bridge-search.config.json`** in the **repository root** (next to `README.md`), or set **`BRIDGE_SEARCH_CONFIG`** to an absolute path. Copy from **`bridge-search.config.example.json`** (defaults match built-in behavior; enables all four backends). Profile-specific examples:
+Place **`config/bridge-search.config.json`** under the repo (create the **`config/`** directory if needed), or set **`BRIDGE_SEARCH_CONFIG`** to an absolute path. Copy from **`config/bridge-search.config.example.json`** (defaults match built-in behavior; enables all four backends). Profile-specific examples:
 
 | File | Use case |
 |------|----------|
-| **`bridge-search.config.everything-only.example.json`** | Voidtools **Everything** for filenames only (no AnyTXT, no WSL find/grep). |
-| **`bridge-search.config.anytxt-only.example.json`** | **AnyTXT** HTTP for full-text only. **No Windows filename indexer**—`locate_file_or_folder` with **`target_env: "windows"`** has no Everything; enable **`wsl_find`** or use WSL paths if you need filename search. |
-| **`bridge-search.config.everything-and-anytxt.example.json`** | **Both** Windows indexers; WSL `find`/`grep` off (merge keys if you need Linux-side search). |
+| **`config/bridge-search.config.everything-only.example.json`** | Voidtools **Everything** for filenames only (no AnyTXT, no WSL find/grep). |
+| **`config/bridge-search.config.anytxt-only.example.json`** | **AnyTXT** HTTP for full-text only. **No Windows filename indexer**—`locate_file_or_folder` with **`target_env: "windows"`** has no Everything; enable **`wsl_find`** or use WSL paths if you need filename search. |
+| **`config/bridge-search.config.everything-and-anytxt.example.json`** | **Both** Windows indexers; WSL `find`/`grep` off (merge keys if you need Linux-side search). |
 
-For a deliberately **relaxed** profile, see **`bridge-search.config.relaxed.json`** and merge only the keys you need.
+For a deliberately **relaxed** profile, see **`config/bridge-search.config.relaxed.json`** and merge only the keys you need.
 
-Alternate config locations (optional): **`wsl-windows-search-bridge.config.json`**, **`WSL_WINDOWS_SEARCH_BRIDGE_CONFIG`**, **`wsl-bridge.config.json`**, **`WSL_BRIDGE_CONFIG`**.
+**Legacy:** If `config/bridge-search.config.json` is missing, the bridge still loads **`bridge-search.config.json`** from the **repository root** (same basename priority as below). Alternate names: **`config/wsl-windows-search-bridge.config.json`** or repo-root **`wsl-windows-search-bridge.config.json`**, **`config/wsl-bridge.config.json`** or repo-root **`wsl-bridge.config.json`**. Env overrides (absolute path; first set wins): **`BRIDGE_SEARCH_CONFIG`**, **`WSL_WINDOWS_SEARCH_BRIDGE_CONFIG`**, **`WSL_BRIDGE_CONFIG`**.
 
 Each example JSON file includes a **`_security_warning`** field: read it before editing. **Changing security-related settings is at your own risk.** This project and its maintainers are **not responsible** for data loss, leaked secrets, account compromise, or unstable systems.
 

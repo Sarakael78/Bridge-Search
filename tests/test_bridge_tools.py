@@ -1,6 +1,7 @@
 """Unit tests for bridge logic (no WSL/Windows binaries required)."""
 
 import copy
+import os
 
 import bridge_tools
 from bridge_tools import _auto_target_env, _backend_enabled, _everything_search_arg, _clamp_int
@@ -66,6 +67,17 @@ def test_backend_enabled_env_overrides_config(monkeypatch) -> None:
         assert _backend_enabled("everything") is False
     finally:
         bridge_tools._cfg_cache = None
+
+
+def test_config_paths_prefers_config_directory(monkeypatch) -> None:
+    monkeypatch.delenv("BRIDGE_SEARCH_CONFIG", raising=False)
+    monkeypatch.delenv("WSL_WINDOWS_SEARCH_BRIDGE_CONFIG", raising=False)
+    monkeypatch.delenv("WSL_BRIDGE_CONFIG", raising=False)
+    paths = bridge_tools._config_paths()
+    assert len(paths) == 6
+    assert paths[0].endswith(os.path.join("config", "bridge-search.config.json"))
+    assert paths[1].endswith("bridge-search.config.json")
+    assert paths[2].endswith(os.path.join("config", "wsl-windows-search-bridge.config.json"))
 
 
 def test_backend_enabled_reads_config_when_env_unset(monkeypatch) -> None:

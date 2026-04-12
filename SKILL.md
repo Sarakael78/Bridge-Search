@@ -11,14 +11,14 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 
 - `scripts/bridge_tools.py`: path translation, safe file operations, directory cataloging, filename search, and content search helpers.
 - `scripts/server.py`: FastMCP wrapper exposing the bridge tools over stdio.
-- `bridge-search.config.example.json`: optional JSON policy (copy to `bridge-search.config.json`; `BRIDGE_SEARCH_CONFIG` can point elsewhere — see README). Profile examples: **`bridge-search.config.everything-only.example.json`**, **`bridge-search.config.anytxt-only.example.json`**, **`bridge-search.config.everything-and-anytxt.example.json`**. Use **`backends`** for other combinations (e.g. WSL-only).
+- `config/bridge-search.config.example.json`: optional JSON policy (copy to `config/bridge-search.config.json`; `BRIDGE_SEARCH_CONFIG` can point elsewhere — see README). Profile examples: **`config/bridge-search.config.everything-only.example.json`**, **`config/bridge-search.config.anytxt-only.example.json`**, **`config/bridge-search.config.everything-and-anytxt.example.json`**. Use **`backends`** for other combinations (e.g. WSL-only).
 - `references/setup_directive.md`: original full setup directive and source material.
 
 ## Workflow
 
 1. Confirm WSL2 is the current environment.
 2. Verify Python 3.10+ and the `mcp` package are available (run **`python3 scripts/setup_skill.py`** from the repo root to install deps and register MCP; use **`--venv`** / **`--dev`** as needed; **`--skip-checks`** if backends exclude Windows services).
-3. Confirm Windows-side prerequisites match **`backends`** in **`bridge-search.config.json`** (defaults: Everything + AnyTXT):
+3. Confirm Windows-side prerequisites match **`backends`** in **`config/bridge-search.config.json`** (defaults: Everything + AnyTXT):
    - Voidtools Everything is installed and running (if **`backends.everything`**).
    - AnyTXT Searcher is installed and the **HTTP Search Service** is enabled on port **9921** (if **`backends.anytxt`**; see `bridge_tools.py` for the request URL).
    - Optional: `curl http://127.0.0.1:9921/` or rely on **`setup_skill.py`** post-install probes.
@@ -43,8 +43,8 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 - **Privacy & Noise:** Ignore `AppData`, browser profiles, `node_modules`, and caches unless explicitly instructed otherwise.
 - **Path policy:** Reads, writes, `map_directory`, and WSL grep roots honor the same **denylist** (resolved paths under `/etc`, `/mnt/c/Windows`, `/usr`, `/var`, etc. are blocked). Optional **`BRIDGE_SEARCH_ALLOWED_PREFIXES`** (`:`-separated; legacy **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOWED_PREFIXES`**) and config **`allowed_prefixes`** restrict file operations to those prefixes and, when set, **filter search tool result rows** (Everything/`find`, WSL `grep`, AnyTXT) to matching paths.
 - **Confirmation flag:** `is_confirmed` is an **agent workflow** toggle—not authorization, not cryptographic proof of human approval, and **not a substitute for OS-level approval**. All **writes** and **deletes** still require it so the model explicitly opts in.
-- **WSL grep default root:** Empty `wsl_search_path` uses **`$HOME`**. Grep from **`/`** needs **`allow_grep_from_filesystem_root`** in `bridge-search.config.json` or **`BRIDGE_SEARCH_ALLOW_ROOT_GREP=1`** (legacy **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_GREP=1`**).
-- **Config file:** Optional **`bridge-search.config.json`** (see `bridge-search.config.example.json`) adjusts denylist strength, confirmation flags, grep-from-root, and resource caps without editing Python. Example files include **`_security_warning`**: relaxing settings is **at your own risk** (see README for what can go wrong).
+- **WSL grep default root:** Empty `wsl_search_path` uses **`$HOME`**. Grep from **`/`** needs **`allow_grep_from_filesystem_root`** in `config/bridge-search.config.json` or **`BRIDGE_SEARCH_ALLOW_ROOT_GREP=1`** (legacy **`WSL_WINDOWS_SEARCH_BRIDGE_ALLOW_ROOT_GREP=1`**).
+- **Config file:** Optional **`config/bridge-search.config.json`** (see `config/bridge-search.config.example.json`) adjusts denylist strength, confirmation flags, grep-from-root, and resource caps without editing Python. Example files include **`_security_warning`**: relaxing settings is **at your own risk** (see README for what can go wrong).
 
 ## Integration: Legal Research
 

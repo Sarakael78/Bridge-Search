@@ -1,5 +1,5 @@
 {
-  "_security_warning": "RELAXED PROFILE — for trusted hosts only. Merge selected keys into bridge-search.config.json. See README for risks. Prefer allowed_prefixes instead of disabling denylist when possible.",
+  "_security_warning": "RELAXED PROFILE — for trusted hosts only. Merge selected keys into config/bridge-search.config.json. See README for risks. Prefer allowed_prefixes instead of disabling denylist when possible.",
   "version": 1,
   "security": {
     "path_denylist": "minimal",

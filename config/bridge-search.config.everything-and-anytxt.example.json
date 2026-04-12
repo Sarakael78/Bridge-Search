@@ -1,6 +1,6 @@
 {
-  "_security_warning": "Copy to bridge-search.config.json or set BRIDGE_SEARCH_CONFIG. Keys starting with _ are ignored.",
-  "_profile": "Windows filename search via Voidtools Everything (es.exe) only. No AnyTXT HTTP, no WSL find/grep. Use locate_file_or_folder with target_env \"windows\".",
+  "_security_warning": "Copy to config/bridge-search.config.json or set BRIDGE_SEARCH_CONFIG. Keys starting with _ are ignored.",
+  "_profile": "Both Windows indexers: Everything for filenames (locate_file_or_folder) and AnyTXT for full-text (locate_content_inside_files). WSL find/grep disabled—enable wsl_find/wsl_grep in a merged config if you need Linux-side search too.",
   "version": 1,
   "security": {
     "path_denylist": "default",
@@ -21,7 +21,7 @@
   },
   "backends": {
     "everything": true,
-    "anytxt": false,
+    "anytxt": true,
     "wsl_find": false,
     "wsl_grep": false
   }
