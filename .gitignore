@@ -3,3 +3,5 @@ __pycache__/
 
 # Local policy (copy from config/bridge-search.config.example.json)
 config/bridge-search.config.json
+
+.venv
