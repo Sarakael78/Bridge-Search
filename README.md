@@ -17,21 +17,79 @@ The **WSL Windows Bridge** solves the 9P filesystem performance bottleneck in WS
 
 ## 📦 Installation
 
-### 1. Windows Prerequisites
-- Install **[Everything](https://www.voidtools.com/)** and ensure it is running.
-- Install **[AnyTXT Searcher](https://anytxt.net/)**.
-- Enable the **AnyTXT HTTP Search Service** on port **9921**.
+Follow these steps to establish the bridge between your WSL2 environment and the Windows host.
 
-### 2. WSL Setup
-Clone this repository into your OpenClaw workspace:
+### 1. Windows Host Setup
+
+#### **A. Voidtools Everything (Filename Search)**
+1.  **Download & Install**: Get the [Everything installer](https://www.voidtools.com/downloads/).
+2.  **Verify Service**: Ensure the "Everything Service" is running (Tools -> Options -> General -> Everything Service).
+3.  **Command-Line Interface**: Ensure `es.exe` is available. The bridge will automatically look in `C:\Program Files\Everything\`, but adding it to your Windows `PATH` is recommended.
+
+#### **B. AnyTXT Searcher (Content Search)**
+1.  **Download & Install**: Get [AnyTXT Searcher](https://anytxt.net/).
+2.  **Enable HTTP Search Service**:
+    *   Open AnyTXT Searcher.
+    *   Go to **Tool -> HTTP Search Service**.
+    *   Set the **Port** to `9921` (this matches the bridge's default).
+    *   Click **Start**.
+    *   *Note*: If you use a different port, you must update `scripts/bridge_tools.py`.
+
+---
+
+### 2. WSL2 Setup
+
+#### **A. Clone the Repository**
+Clone this repository into your OpenClaw `skills/` directory (or any preferred location):
 ```bash
+cd ~/.openclaw/workspace/skills
 git clone https://github.com/Sarakael78/wsl-windows-bridge.git
+cd wsl-windows-bridge
 ```
 
-### 3. Register MCP Server
-Register the server with `mcporter` or your preferred MCP host:
+#### **B. Install Python Dependencies**
+The bridge requires Python 3.10+ and the `mcp` package. It is recommended to use a virtual environment or install globally for your user:
 ```bash
-mcporter config add wsl-bridge --command "python3 /path/to/scripts/server.py" --description "WSL-to-Windows search bridge"
+# Using a virtual environment (Recommended)
+python3 -m venv venv
+source venv/bin/activate
+pip install mcp
+
+# OR install globally for your user
+pip install mcp --user
+```
+
+#### **C. Verify Connectivity**
+Test if WSL can reach the Windows AnyTXT service:
+```bash
+curl http://127.0.0.1:9921/
+```
+
+---
+
+### 3. Registering the MCP Server
+
+The bridge tools are exposed via an MCP server (`scripts/server.py`). You can register this with any MCP-compatible host.
+
+#### **Using `mcporter` (OpenClaw Standard)**
+Run this command from within the repository to register the server persistently:
+```bash
+mcporter config add wsl-bridge \
+  --command "python3 $(pwd)/scripts/server.py" \
+  --description "WSL-to-Windows search bridge (Everything/AnyTXT)"
+```
+
+#### **Manual Integration (Claude Desktop / Windsurf)**
+Add the following to your `mcp_config.json`:
+```json
+{
+  "mcpServers": {
+    "wsl-bridge": {
+      "command": "python3",
+      "args": ["/absolute/path/to/wsl-windows-bridge/scripts/server.py"]
+    }
+  }
+}
 ```
 
 ## ⚖️ Guardrails (The Absolute Zero Rule)
