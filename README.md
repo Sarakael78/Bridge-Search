@@ -2,6 +2,8 @@
 
 A high-performance bridge for cross-OS search and file management between WSL2 and Windows. This repository provides a **Skill** for behavioral guardrails and an **MCP Server** for technical execution.
 
+**GitHub:** [`Sarakael78/wsl-windows-search`](https://github.com/Sarakael78/wsl-windows-search) — rename the repository on GitHub to **`Bridge-Search`** when you want the URL and default clone folder to match that name; then update `git remote` and any bookmarks.
+
 ---
 
 ## ⚡ Zero-Touch Installation (Any MCP Agent)
@@ -9,7 +11,7 @@ A high-performance bridge for cross-OS search and file management between WSL2 a
 If you are using **OpenClaw, Claude Desktop, Cursor, or Windsurf**, you can automate the setup.
 
 1.  **Windows Setup**: Ensure [Everything](https://www.voidtools.com/) and [AnyTXT](https://anytxt.net/) (port 9921) are running on Windows.
-2.  **Tell your Agent**: Give it this link: **`https://github.com/Sarakael78/Bridge-Search`** and say:
+2.  **Tell your Agent**: Give it this link: **`https://github.com/Sarakael78/wsl-windows-search`** and say:
     **"Clone this and run `python3 scripts/setup_skill.py` to install."**
 
 The agent will autonomously:
@@ -129,11 +131,11 @@ Follow these steps to establish the bridge between your WSL2 environment and the
 ### 2. WSL2 Setup
 
 #### **A. Clone the Repository**
-Clone this repository into your OpenClaw `skills/` directory (or any preferred location). The default checkout directory name matches the GitHub repo (**`Bridge-Search`**); older checkouts may still be named **`wsl-windows-search-bridge`** or **`wsl-windows-bridge`**.
+Clone this repository into your OpenClaw `skills/` directory (or any preferred location). The default checkout folder follows the GitHub repo name (currently **`wsl-windows-search`**). You may rename the folder to **`Bridge-Search`** locally or after renaming the repo on GitHub.
 ```bash
 cd ~/.openclaw/workspace/skills
-git clone https://github.com/Sarakael78/Bridge-Search.git
-cd Bridge-Search
+git clone https://github.com/Sarakael78/wsl-windows-search.git
+cd wsl-windows-search
 ```
 
 #### **B. Install Python Dependencies**
