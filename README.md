@@ -34,7 +34,7 @@ To get blazing-fast search speeds, you need the underlying Windows indexers inst
 
 Human users can copy and paste this exact prompt to their AI agent to automate the setup:
 
-> "I need you to search my Windows files efficiently. Please navigate to your designated skills directory, clone `https://github.com/Sarakael78/Bridge-Search`, read the README.md, and run `./install.sh` from the repo root. **If `./install.sh` stops for a `sudo` password, halt and ask me to run it manually.** Once installed, explicitly ensure the `bridge-search` skill is activated in your environment (for OpenClaw, verify `alsoAllow` and run `openclaw gateway restart`). Use the `bridge-search` MCP tools for all file lookups going forward."
+> "I need you to search my Windows files efficiently. Please navigate to your designated skills directory, clone `https://github.com/Sarakael78/Bridge-Search`, read **`README.md`** and **`SKILL.md`** in the repo root, then run `./install.sh` from the repo root. **If `./install.sh` stops for a `sudo` password, halt and ask me to run it manually.** Once installed, explicitly ensure the `bridge-search` skill is activated in your environment (for OpenClaw, verify `alsoAllow` and run `openclaw gateway restart`). Use the `bridge-search` MCP tools for all file lookups going forward, obeying the guardrails in **`SKILL.md`**."
 
 ### 3. Manual Installation (WSL2)
 
@@ -65,7 +65,7 @@ Manual registration is documented under [Manual MCP Registration](#manual-mcp-re
 
 **If you are an AI assistant reading this**, Bridge Search provides you with specialised MCP tools to navigate the Windows/WSL file system efficiently. Because agents like OpenClaw struggle to search Windows mounts quickly, you must rely on these tools instead of shell commands.
 
-Full agent workflow, default scope, and integration notes are in **`SKILL.md`** at the repo root; the following is a short summary.
+**Before you call these MCP tools**, read **`README.md`** (install, troubleshooting, security overview) **and** **`SKILL.md`** (full guardrails, search order, path policy, `is_confirmed`, integrations). The following is a short summary only; **`SKILL.md` is authoritative** for agent behaviour.
 
 ### Agent Guardrails (The "Absolute Zero" Rule)
 
