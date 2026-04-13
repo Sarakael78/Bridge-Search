@@ -221,6 +221,14 @@ def hybrid_file_io(
         parent_blocked = symlink_policy_error(action, parent)
         if parent_blocked is not None:
             return parent_blocked
+        if not content:
+            warnings.append(
+                make_issue(
+                    code=ErrorCodes.EMPTY_CONTENT_WRITE,
+                    message="Write called with empty content; file will be created empty (replace) or unchanged (append).",
+                    path=source_path,
+                )
+            )
         mode = "a" if normalized_write_mode == "append" else "w"
         try:
             with open(src, mode, encoding="utf-8", newline="") as file_handle:

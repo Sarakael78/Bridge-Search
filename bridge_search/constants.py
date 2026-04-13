@@ -52,6 +52,7 @@ class ErrorCodes:
     SEARCH_ROOT_BLOCKED: Final[str] = "search_root_blocked"
     CATALOG_FAILED: Final[str] = "catalog_failed"
     LARGE_DIRECTORY_DELETE: Final[str] = "large_directory_delete"
+    EMPTY_CONTENT_WRITE: Final[str] = "empty_content_write"
     NO_BACKENDS_ENABLED: Final[str] = "no_backends_enabled"
     EVERYTHING_MISSING: Final[str] = "everything_missing"
     EVERYTHING_SERVICE_ERROR: Final[str] = "everything_service_error"

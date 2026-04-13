@@ -550,6 +550,23 @@ def content_locator(query: str, target_env: str = "everywhere", wsl_search_path:
             warnings.extend(g_warnings)
             results.extend(g_results)
 
+    # Deduplicate across backends keyed on (canonical_path, line_number)
+    deduped: List[Dict[str, Any]] = []
+    seen_keys: set = set()
+    duplicates_skipped = 0
+    for row in results:
+        line_num = row.get("line_number")
+        key = (canonical_path(row["path"]), line_num)
+        if line_num is not None and key in seen_keys:
+            duplicates_skipped += 1
+            continue
+        if line_num is not None:
+            seen_keys.add(key)
+        deduped.append(row)
+    results = deduped
+    if duplicates_skipped:
+        meta["duplicate_content_hits_ignored"] = duplicates_skipped
+
     meta["total_found"] = len(results)
     meta["has_more"] = len(results) > offset + limit
     if len(results) >= page_cap:

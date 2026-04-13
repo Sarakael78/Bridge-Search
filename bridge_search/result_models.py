@@ -16,15 +16,22 @@ def make_issue(*, code: str, message: str, source: Optional[str] = None, path: O
 
 
 def success_response(*, results: Optional[List[Dict[str, Any]]] = None, errors: Optional[List[Dict[str, Any]]] = None, warnings: Optional[List[Dict[str, Any]]] = None, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Return the standard top-level response shape for all bridge tools."""
+    """Return the standard top-level response shape for all bridge tools.
+
+    Sets ``meta.degraded = True`` when both errors and results are non-empty
+    to make the partial-success state explicit without breaking ``success``.
+    """
     errs = errors or []
     res = results or []
+    out_meta = dict(meta) if meta else {}
+    if errs and res:
+        out_meta["degraded"] = True
     return {
         "success": len(errs) == 0 or len(res) > 0,
         "results": res,
         "errors": errs,
         "warnings": warnings or [],
-        "meta": meta or {},
+        "meta": out_meta,
     }
 
 
