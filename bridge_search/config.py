@@ -29,6 +29,7 @@ _DEFAULTS: Dict[str, Any] = {
         "anytxt_max_response_bytes": 2097152,
         "command_timeout_seconds": 10,
         "max_read_bytes": 1048576,
+        "max_delete_entries": 1000,
     },
     "backends": {"everything": True, "anytxt": True, "wsl_find": True, "wsl_grep": True},
 }
@@ -131,12 +132,41 @@ def lim(key: str) -> int:
     return int(limits.get(key, _DEFAULTS["limits"][key]))
 
 
+_PRIVATE_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _is_private_host(hostname: Optional[str]) -> bool:
+    if not hostname:
+        return False
+    h = hostname.lower()
+    if h in _PRIVATE_HOSTS:
+        return True
+    if h.startswith("10.") or h.startswith("172.") or h.startswith("192.168."):
+        return True
+    return False
+
+
 def normalize_anytxt_url(raw: str) -> str:
-    """Normalize a base AnyTXT URL or endpoint into a canonical `/search` endpoint."""
+    """Normalize a base AnyTXT URL or endpoint into a canonical `/search` endpoint.
+
+    Emits a stderr warning if the resulting URL points to a non-private host
+    (potential SSRF risk).
+    """
     url = raw.strip()
     if not url:
         return _DEFAULTS["service"]["anytxt_url"]
     parsed = urllib.parse.urlparse(url)
+    if parsed.scheme and parsed.scheme not in ("http", "https"):
+        print(
+            f"bridge-search: warning: AnyTXT URL uses unexpected scheme '{parsed.scheme}'; only http/https are supported",
+            file=sys.stderr,
+        )
+    if parsed.hostname and not _is_private_host(parsed.hostname):
+        print(
+            f"bridge-search: warning: AnyTXT URL points to non-private host '{parsed.hostname}'; "
+            "AnyTXT should run on localhost or a private network",
+            file=sys.stderr,
+        )
     path = parsed.path or ""
     if path.rstrip("/").endswith("/search"):
         clean_path = path.rstrip("/")

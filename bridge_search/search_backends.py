@@ -208,6 +208,13 @@ def _everything_search_arg(query: str, exact_match: bool) -> str:
     return f"*{q}*"
 
 
+def _escape_find_glob(query: str) -> str:
+    """Escape characters that ``find -iname`` interprets as glob metacharacters."""
+    for ch in ("\\", "[", "]"):
+        query = query.replace(ch, f"\\{ch}")
+    return query
+
+
 def _wsl_locator_full_root_allowed() -> bool:
     sec = get_bridge_config().get("security", {})
     if bool(sec.get("allow_wsl_locator_from_filesystem_root", False)):
@@ -313,7 +320,8 @@ def system_locator(query: str, target_env: str = "windows", exact_match: bool = 
         f_warnings: List[Dict[str, Any]] = []
         f_truncated = False
         try:
-            pattern = query if exact_match else f"*{query}*"
+            escaped = _escape_find_glob(query)
+            pattern = escaped if exact_match else f"*{escaped}*"
             search_root = _wsl_filename_find_root()
             cmd = ["find", "/", "-path", "/mnt", "-prune", "-o", "-iname", pattern, "-print"] if search_root == "/" else ["find", search_root, "-iname", pattern, "-print"]
             process = subprocess.run(cmd, capture_output=True, text=True, timeout=_subprocess_timeout())
@@ -449,6 +457,9 @@ def content_locator(query: str, target_env: str = "everywhere", wsl_search_path:
                             a_errors.append(make_issue(code=ErrorCodes.RESPONSE_TOO_LARGE, message=f"Response exceeded {cap_anytxt} bytes; raise anytxt_max_response_bytes if needed.", source="windows-anytxt"))
                         else:
                             data = json.loads(raw.decode("utf-8"))
+                            if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+                                a_errors.append(make_issue(code=ErrorCodes.INVALID_RESPONSE, message="AnyTXT response has unexpected structure (expected {\"results\": [...]})", source="windows-anytxt"))
+                                continue
                             for item in data.get("results", []):
                                 if len(a_results) >= cap_loc:
                                     break

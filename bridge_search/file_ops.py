@@ -166,6 +166,19 @@ def hybrid_file_io(
 
     def safe_remove(path: str) -> None:
         if os.path.isdir(path) and not os.path.islink(path):
+            try:
+                top_count = sum(1 for _ in os.scandir(path))
+            except OSError:
+                top_count = 0
+            cap = lim("max_delete_entries")
+            if top_count > cap:
+                warnings.append(
+                    make_issue(
+                        code=ErrorCodes.LARGE_DIRECTORY_DELETE,
+                        message=f"Directory contains {top_count} top-level entries (cap {cap}). Proceeding because is_confirmed=True.",
+                        path=path,
+                    )
+                )
             shutil.rmtree(path)
         else:
             os.remove(path)
