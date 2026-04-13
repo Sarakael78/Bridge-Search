@@ -154,7 +154,7 @@ def normalize_anytxt_url(raw: str) -> str:
     """
     url = raw.strip()
     if not url:
-        return _DEFAULTS["service"]["anytxt_url"]
+        return str(_DEFAULTS["service"]["anytxt_url"])
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme and parsed.scheme not in ("http", "https"):
         print(

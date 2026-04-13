@@ -7,6 +7,24 @@ on:
     branches: [ main, master ]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Lint with ruff
+      run: |
+        pip install ruff
+        ruff check bridge_search/ scripts/ tests/
+    - name: Type check with mypy
+      run: |
+        pip install mypy
+        pip install -r requirements.txt
+        mypy bridge_search/ --ignore-missing-imports
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -14,9 +32,9 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v4
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
     - name: Cache pip packages
