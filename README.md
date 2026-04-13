@@ -56,7 +56,7 @@ The clone directory name is arbitrary (`Bridge-Search` above); the MCP server na
 
 ### 4. MCP client (`mcporter`) on WSL
 
-The bridge exposes MCP over stdio. **`setup_skill.py`** can register it; otherwise you need **[mcporter](https://github.com/steipete/mcporter)** (or another MCP host that launches `scripts/server.py`). Install Node.js, then:
+The bridge exposes MCP over stdio. **`setup_skill.py`** can register it; otherwise you need **[mcporter](https://github.com/steipete/mcporter)** (or another MCP host that launches `scripts/server.py`, or `python3 -m bridge_search` when the `bridge_search` package is on `PYTHONPATH` / installed editable from this repo). Install Node.js, then:
 
 ```bash
 npm install -g @steipete/mcporter
@@ -120,6 +120,8 @@ Bridge Search equips your AI with the following capabilities:
 - reads try several common text encodings (`utf-8`, `utf-16`, `cp1252`) before giving up
 - write/copy/move/mkdir are blocked on symlink paths, while delete removes the symlink itself rather than following it
 - file operations use Python filesystem APIs instead of shelling out to `cp`, `mv`, or `rm -rf`
+- `write` with empty or missing `content` still runs (replace creates/truncates; append is a no-op) but returns warning `empty_content_write`
+- deleting a directory with more than `limits.max_delete_entries` top-level entries proceeds when `is_confirmed=True` but includes warning `large_directory_delete`
 
 ### Unified response contract
 
@@ -137,6 +139,7 @@ Important:
 
 - a zero-hit search is a valid outcome, so it returns `success: true` with `results: []`
 - when multiple backends are queried, `success` may still be `true` if at least one backend returns results; always inspect `errors` and `warnings` for partial failures
+- when both `errors` and `results` are non-empty, `meta.degraded` is `true` so partial success is explicit
 - when Windows paths come back from Everything or AnyTXT, Bridge Search translates them to WSL paths when possible and preserves the original as `raw_path`
 - `manage_file(read)` returns decoded text in `results[0].content` and may include `results[0].encoding`
 
@@ -303,6 +306,8 @@ mcporter config add bridge-search \
   --persist ~/.mcporter/mcporter.json
 ```
 
+If you use a venv with the package installed (`pip install -e .` from the repo), you can point `mcporter` at the venv’s `python` and pass `-m` / `bridge_search` instead of `scripts/server.py` (same stdio MCP).
+
 For OpenClaw, manually add `bridge-search` to `alsoAllow` for your agent, then run `openclaw gateway restart`.
 
 Installer note: `setup_skill.py` no longer edits `~/.openclaw/openclaw.json` unless you explicitly pass `--openclaw-allowlist`.
@@ -330,7 +335,7 @@ For OpenClaw, remove `bridge-search` from `alsoAllow` in `~/.openclaw/openclaw.j
 | **Encoding & Symlink Policy** | Text reads try common Windows/Unicode encodings before failing. Mutating operations are blocked on symlink paths so the agent must act on the resolved real path explicitly. |
 | **Search Root Limits** | WSL content/filename searches default to `$HOME`. Searching from `/` requires explicit opt-in via config keys like `security.allow_grep_from_filesystem_root`. |
 | **Timeouts & DoS Caps** | Directory listing, locator hits, AnyTXT HTTP responses, and subprocess calls have caps/timeouts (for example `limits.max_catalog_lines`, `limits.anytxt_max_response_bytes`, `limits.command_timeout_seconds`). |
-| **AnyTXT URL Scope** | The AnyTXT HTTP endpoint is operator-controlled (`service.anytxt_url` or `BRIDGE_SEARCH_ANYTXT_URL`). It should point to localhost or a private-network host only. The bridge emits a warning on startup when a non-private host is configured. |
+| **AnyTXT URL Scope** | The AnyTXT HTTP endpoint is operator-controlled (`service.anytxt_url` or `BRIDGE_SEARCH_ANYTXT_URL`). It should point to localhost or a private-network host only. The bridge logs a stderr warning when a non-private host or non-http(s) scheme is configured. |
 
 ⚠️ **Warning:** Each example JSON file includes a `_security_warning` field. Read it before editing. Relaxing these settings (like using `path_denylist: "none"` or disabling confirmation flags) is at your own risk.
 

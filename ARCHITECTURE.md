@@ -25,13 +25,14 @@ Agent
 - `bridge_search/path_policy.py`: path translation plus allowlist and denylist checks
 - `bridge_search/config.py`: merged config loading, env overrides, limits, and timeouts
 - `bridge_search/result_models.py`: standardized response shape helpers
+- `bridge_search/__main__.py`: enables `python -m bridge_search` (stdio MCP) when the package is importable
 - `scripts/server.py`, `scripts/bridge_tools.py`: compatibility wrappers
 - `scripts/setup_skill.py`: installer and registration helper
 
 ### Caching and performance
 
-- `resolve_path` and `canonical_path` are cached via `lru_cache` to avoid redundant subprocess calls (`wslpath`) and expensive I/O.
-- `resolve_es_exe` is cached at the module level after the first successful resolution, and revalidated on each call to avoid stale paths after install/uninstall changes.
+- `resolve_path` and `canonical_path` use bounded in-memory caches that **only store successful resolutions** (failed `wslpath` / `realpath` fallbacks are not cached, so transient errors can recover on the next call).
+- `resolve_es_exe` and `everything_help_text` resolve under a module lock so concurrent threads do not race the cache or duplicate subprocess work; a cached `es.exe` path is still checked with `os.path.exists` before reuse.
 - Parallel execution via `ThreadPoolExecutor` ensures that backend delays do not block the entire search when targeting multiple environments.
 
 ## Request flow
@@ -90,13 +91,14 @@ Everything is the preferred Windows filename backend.
 
 AnyTXT is accessed over HTTP.
 
-- Runtime endpoint comes from config or `BRIDGE_SEARCH_ANYTXT_URL`.
+- Runtime endpoint comes from config or `BRIDGE_SEARCH_ANYTXT_URL`; non-private hosts and unexpected URL schemes log warnings to stderr (operator override).
 - Response size is capped.
 - Request timeout is bounded.
+- JSON bodies must look like `{"results": [<items>]}`; malformed shapes yield structured `invalid_response` errors instead of silent iteration failures.
 
 ### WSL backends
 
-- WSL filename search uses `find`
+- WSL filename search uses `find`; glob metacharacters in the user query are escaped before `-iname` patterns are built
 - WSL content search uses `grep` with `-m 2` (at most 2 matching lines per file) to keep results concise and prevent runaway scans
 - Both are capped by config and protected by timeouts
 - Root-wide scanning is blocked by default
@@ -152,5 +154,5 @@ The installer no longer mutates `~/.openclaw/openclaw.json` unless `--openclaw-a
 
 - Native paging is currently strongest on Everything because the CLI exposes viewport flags.
 - WSL `find` and `grep` still rely on bounded client-side short-circuiting, not true backend offsets.
-- Content search (`content_locator`) does not deduplicate across AnyTXT and WSL grep backends because content hits include line numbers and snippets that differ between engines. Callers should expect possible overlap when `target_env=everywhere`.
+- Content search (`content_locator`) **deduplicates** merged rows when both backends return the same path and `line_number` (snippet-only AnyTXT hits without a line number are not deduped against grep rows).
 - Safety is policy-based and pragmatic, not a hardened isolation boundary.

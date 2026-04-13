@@ -1,11 +1,11 @@
 ---
 name: bridge-search
-description: Set up and operate the WSL2-to-Windows search bridge for Everything (`es.exe`), AnyTXT via its HTTP Search Service only, and `bridge_tools.py`. Use when working across `/mnt/c` and `C:\` paths, when you need fast Windows filename search, full-text file-content search on Windows, or when enabling the bundled `bridge_tools.py` and `server.py` MCP pair as a reusable bridge skill. Do not look for or rely on an AnyTXT CLI binary; in this workflow AnyTXT is HTTP-only.
+description: Set up and operate the WSL2-to-Windows search bridge for Everything (`es.exe`), AnyTXT via its HTTP Search Service only, and the `bridge_search` MCP package. Use when working across `/mnt/c` and `C:\` paths, when you need fast Windows filename search, full-text file-content search on Windows, or when enabling this repo’s MCP server (`scripts/server.py` wrapper or `python -m bridge_search`). Do not look for or rely on an AnyTXT CLI binary; in this workflow AnyTXT is HTTP-only.
 ---
 
 # Bridge Search
 
-Use this skill to set up and run the MCP bridge stored in this skill's `scripts/` folder. This is the **authoritative** bridge for cross-OS search and file management.
+Use this skill to set up and run the MCP bridge: implementation lives in **`bridge_search/`**; **`scripts/server.py`** is a thin compatibility launcher. This is the **authoritative** bridge for cross-OS search and file management.
 
 **Installation, `mcporter`, troubleshooting, and security:** see **`README.md`** in this repo.
 
@@ -13,6 +13,7 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 
 - `bridge_search/`: authoritative Python package — `server.py` (MCP registration), `search_backends.py` (Everything, AnyTXT, WSL find/grep), `file_ops.py` (guarded I/O), `path_policy.py` (allow/denylist), `config.py` (config loading), `result_models.py` (response helpers), `constants.py` (error codes).
 - `scripts/server.py`: compatibility wrapper that adds the repo root to `sys.path` then runs `bridge_search.server`.
+- `bridge_search/__main__.py`: same MCP stdio entry as the server when run as `python -m bridge_search` (requires package import path).
 - `config/bridge-search.config.example.json`: optional JSON policy (copy to `config/bridge-search.config.json`; `BRIDGE_SEARCH_CONFIG` can point elsewhere — see README). Profile examples: **`config/bridge-search.config.everything-only.example.json`**, **`config/bridge-search.config.anytxt-only.example.json`**, **`config/bridge-search.config.everything-and-anytxt.example.json`**. Use **`backends`** for other combinations (e.g. WSL-only).
 
 ## Workflow
@@ -48,7 +49,7 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 - **Encoding & Quoting:** The bridge tools handle Windows path quoting and `cp1252` encoding. Manual `run_shell_command` calls are likely to fail on paths with spaces or special characters.
 - **AnyTXT is a Service:** Treat AnyTXT as a networked local service. If search fails, debug the service state or port **9921**, not the local filesystem.
 - **Structured results:** All bridge tools return **`success`**, **`results`**, **`errors`**, **`warnings`**, and **`meta`**. Issues include stable machine-readable **`code`** fields. A clean zero-hit search is **not** an error.
-- **Partial backend failures:** In multi-backend searches, `success` can still be `true` when one backend returns hits and another errors or times out; always read `errors` and `warnings`.
+- **Partial backend failures:** In multi-backend searches, `success` can still be `true` when one backend returns hits and another errors or times out; always read `errors` and `warnings`. If both `errors` and `results` are non-empty, **`meta.degraded`** is `true`.
 - **Privacy & Noise:** Ignore `AppData`, browser profiles, `node_modules`, and caches unless explicitly instructed otherwise.
 - **Path policy:** Reads, writes, `map_directory`, and WSL grep roots honor the same **denylist** (resolved paths under `/etc`, `/mnt/c/Windows`, `/usr`, `/var`, etc. are blocked). Optional **`BRIDGE_SEARCH_ALLOWED_PREFIXES`** and config **`allowed_prefixes`** restrict file operations to those prefixes and, when set, **filter search tool result rows** (Everything/`find`, WSL `grep`, AnyTXT) to matching paths. The env parser accepts `:` or `;`; prefer `;` when any Windows-style `C:\...` path is present. Config entries may be WSL or Windows absolute paths.
 - **Confirmation flag:** `is_confirmed` is an **agent workflow** toggle—not authorization, not cryptographic proof of human approval, and **not a substitute for OS-level approval**. All **writes** and **deletes** still require it so the model explicitly opts in.
