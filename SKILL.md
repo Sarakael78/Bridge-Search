@@ -11,8 +11,8 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 
 ## Files
 
-- `scripts/bridge_tools.py`: path translation, safe file operations, directory cataloging, filename search, and content search helpers.
-- `scripts/server.py`: FastMCP wrapper exposing the bridge tools over stdio.
+- `bridge_search/`: authoritative Python package — `server.py` (MCP registration), `search_backends.py` (Everything, AnyTXT, WSL find/grep), `file_ops.py` (guarded I/O), `path_policy.py` (allow/denylist), `config.py` (config loading), `result_models.py` (response helpers), `constants.py` (error codes).
+- `scripts/server.py`: compatibility wrapper that adds the repo root to `sys.path` then runs `bridge_search.server`.
 - `config/bridge-search.config.example.json`: optional JSON policy (copy to `config/bridge-search.config.json`; `BRIDGE_SEARCH_CONFIG` can point elsewhere — see README). Profile examples: **`config/bridge-search.config.everything-only.example.json`**, **`config/bridge-search.config.anytxt-only.example.json`**, **`config/bridge-search.config.everything-and-anytxt.example.json`**. Use **`backends`** for other combinations (e.g. WSL-only).
 
 ## Workflow
@@ -67,7 +67,7 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 - **Everything** = `locate_file_or_folder` (Fastest)
 - **AnyTXT** = `locate_content_inside_files` (Indexed Content)
 - **Diagnostic** = `get_health` (Check connectivity/services)
-- **Bridge Port** = **9921**
+- **AnyTXT Port** = **9921** (Bridge Search itself uses stdio, not a network port)
 - **WSL2 Localhost** = Automatic host discovery (from `/etc/resolv.conf`) is enabled.
 - **No hit from Everything** = **No match in the indexer for that query** (treat as “not found” unless indexing/scope/query issues apply). Stop brute-forcing `/mnt/c`.
 

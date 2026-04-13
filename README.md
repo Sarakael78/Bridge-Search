@@ -1,6 +1,6 @@
 # Bridge Search 🌉
 
-[![Licence: MIT](https://img.shields.io/badge/Licence-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Ready-success.svg)](https://github.com/steipete/mcporter)
 
@@ -269,6 +269,7 @@ We provide templates in the `config/` directory for common setups:
   - `anytxt_max_response_bytes` caps AnyTXT payloads.
   - `command_timeout_seconds` is the default timeout for `es.exe`, `grep`, `wslpath`, and HTTP calls.
   - `max_read_bytes` is the soft limit for `manage_file(read)` before a truncation warning (default 1 048 576 bytes).
+  - `max_delete_entries` is the top-level entry count above which `manage_file(delete)` emits a warning about large directory removal (default 1000).
 - `backends.everything`, `.anytxt`, `.wsl_find`, and `.wsl_grep` enable or disable each search backend.
 
 #### Environment overrides
@@ -305,6 +306,16 @@ For OpenClaw, manually add `bridge-search` to `alsoAllow` for your agent, then r
 
 Installer note: `setup_skill.py` no longer edits `~/.openclaw/openclaw.json` unless you explicitly pass `--openclaw-allowlist`.
 
+### Uninstalling
+
+```bash
+mcporter config remove bridge-search --persist ~/.mcporter/mcporter.json
+# Optionally remove the repo directory and venv
+rm -rf /path/to/Bridge-Search
+```
+
+For OpenClaw, remove `bridge-search` from `alsoAllow` in `~/.openclaw/openclaw.json` and run `openclaw gateway restart`.
+
 ## 🛡️ Security Model
 
 **TL;DR:** Bridge Search includes built-in safeguards to prevent your AI from accidentally modifying critical OS files or endlessly scanning your hard drive. The MCP process runs with your standard user privileges. Controls are **defence in depth**, relying on workflow flags and path resolution.
@@ -318,6 +329,7 @@ Installer note: `setup_skill.py` no longer edits `~/.openclaw/openclaw.json` unl
 | **Encoding & Symlink Policy** | Text reads try common Windows/Unicode encodings before failing. Mutating operations are blocked on symlink paths so the agent must act on the resolved real path explicitly. |
 | **Search Root Limits** | WSL content/filename searches default to `$HOME`. Searching from `/` requires explicit opt-in via config keys like `security.allow_grep_from_filesystem_root`. |
 | **Timeouts & DoS Caps** | Directory listing, locator hits, AnyTXT HTTP responses, and subprocess calls have caps/timeouts (for example `limits.max_catalog_lines`, `limits.anytxt_max_response_bytes`, `limits.command_timeout_seconds`). |
+| **AnyTXT URL Scope** | The AnyTXT HTTP endpoint is operator-controlled (`service.anytxt_url` or `BRIDGE_SEARCH_ANYTXT_URL`). It should point to localhost or a private-network host only. The bridge emits a warning on startup when a non-private host is configured. |
 
 ⚠️ **Warning:** Each example JSON file includes a `_security_warning` field. Read it before editing. Relaxing these settings (like using `path_denylist: "none"` or disabling confirmation flags) is at your own risk.
 
@@ -334,6 +346,6 @@ If you encounter a bug or have a feature request, please [open an issue](https:/
 3. Make your changes and run the test suite: `python3 -m pytest`
 4. Submit a pull request.
 
-## 📝 Licence
+## 📝 License
 
 [MIT](LICENSE)

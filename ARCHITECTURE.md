@@ -138,6 +138,7 @@ Important rules:
 - zero-hit searches are valid successes
 - warnings and errors include stable machine-readable codes
 - `success` can be true for partial backend outcomes when at least one backend produced results; inspect `errors` and `warnings` for degraded paths
+- when both `errors` and `results` are non-empty, `meta.degraded` is set to `true` so callers can detect partial success without parsing error arrays
 - file-operation failures should return structured errors instead of propagating raw exceptions
 
 ## Installer posture
