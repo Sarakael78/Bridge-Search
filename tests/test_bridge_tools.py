@@ -481,3 +481,147 @@ def test_everything_supports_native_paging_from_help(monkeypatch) -> None:
 
     monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
     assert search_backends.everything_supports_native_paging() is True
+
+
+# --- Phase 10 new tests ---
+
+
+def test_resolve_path_does_not_cache_failures(monkeypatch) -> None:
+    """When wslpath fails transiently, resolve_path should retry on next call."""
+    call_count = 0
+
+    def fake_run(cmd, capture_output=False, text=False, check=False, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise OSError("transient failure")
+        return SimpleNamespace(returncode=0, stdout="/mnt/d/test\n", stderr="")
+
+    monkeypatch.setattr(path_policy.subprocess, "run", fake_run)
+    path_policy._RESOLVE_CACHE.clear()
+
+    r1 = path_policy.resolve_path(r"D:\test", "wsl")
+    assert r1 == r"D:\test"
+
+    r2 = path_policy.resolve_path(r"D:\test", "wsl")
+    assert r2 == "/mnt/d/test"
+    assert call_count == 2
+
+
+def test_is_binary_file_null_byte(tmp_path) -> None:
+    binary = tmp_path / "bin.dat"
+    binary.write_bytes(b"hello\x00world")
+    assert file_ops.is_binary_file(str(binary)) is True
+
+
+def test_is_binary_file_valid_utf8(tmp_path) -> None:
+    text = tmp_path / "text.txt"
+    text.write_text("hello world", encoding="utf-8")
+    assert file_ops.is_binary_file(str(text)) is False
+
+
+def test_is_binary_file_utf16_bom(tmp_path) -> None:
+    utf16 = tmp_path / "utf16.txt"
+    utf16.write_text("hello", encoding="utf-16")
+    assert file_ops.is_binary_file(str(utf16)) is False
+
+
+def test_read_text_with_fallbacks_truncation(monkeypatch, tmp_path) -> None:
+    target = tmp_path / "big.txt"
+    target.write_text("x" * 200, encoding="utf-8")
+    monkeypatch.setattr(bridge_config, "get_bridge_config", lambda reload=False: {
+        **bridge_config._DEFAULTS,
+        "limits": {**bridge_config._DEFAULTS["limits"], "max_read_bytes": 50},
+    })
+    result = bridge_tools.hybrid_file_io("read", str(target))
+    assert result["success"] is True
+    assert len(result["results"][0]["content"]) == 50
+    assert any(w["code"] == "read_truncated" for w in result["warnings"])
+
+
+def test_manage_file_copy_same_path_blocked(tmp_path) -> None:
+    src = tmp_path / "file.txt"
+    src.write_text("data", encoding="utf-8")
+    result = bridge_tools.hybrid_file_io("copy", str(src), destination_path=str(src))
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "same_path"
+
+
+def test_manage_file_move_same_path_blocked(tmp_path) -> None:
+    src = tmp_path / "file.txt"
+    src.write_text("data", encoding="utf-8")
+    result = bridge_tools.hybrid_file_io("move", str(src), destination_path=str(src))
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "same_path"
+
+
+def test_manage_file_copy_into_self_blocked(tmp_path) -> None:
+    src = tmp_path / "parent"
+    src.mkdir()
+    (src / "child.txt").write_text("data", encoding="utf-8")
+    dst = src / "subdir"
+    result = bridge_tools.hybrid_file_io("copy", str(src), destination_path=str(dst))
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "recursive_destination"
+
+
+def test_wsl_find_root_uses_home_by_default(monkeypatch) -> None:
+    monkeypatch.setattr(search_backends, "_wsl_locator_full_root_allowed", lambda: False)
+    import os
+    assert search_backends._wsl_filename_find_root() == os.path.expanduser("~")
+
+
+def test_wsl_find_root_uses_slash_when_allowed(monkeypatch) -> None:
+    monkeypatch.setattr(search_backends, "_wsl_locator_full_root_allowed", lambda: True)
+    assert search_backends._wsl_filename_find_root() == "/"
+
+
+def test_empty_content_write_warns(tmp_path) -> None:
+    target = tmp_path / "empty.txt"
+    result = bridge_tools.hybrid_file_io("write", str(target), content=None, is_confirmed=True)
+    assert result["success"] is True
+    assert any(w["code"] == "empty_content_write" for w in result["warnings"])
+
+
+def test_empty_string_content_write_warns(tmp_path) -> None:
+    target = tmp_path / "empty2.txt"
+    result = bridge_tools.hybrid_file_io("write", str(target), content="", is_confirmed=True)
+    assert result["success"] is True
+    assert any(w["code"] == "empty_content_write" for w in result["warnings"])
+
+
+def test_meta_degraded_flag_set_on_partial_success() -> None:
+    from bridge_search.result_models import success_response, make_issue
+    resp = success_response(
+        results=[{"type": "hit", "path": "/tmp/a"}],
+        errors=[make_issue(code="backend_error", message="boom")],
+    )
+    assert resp["success"] is True
+    assert resp["meta"]["degraded"] is True
+
+
+def test_meta_degraded_flag_not_set_on_clean_success() -> None:
+    from bridge_search.result_models import success_response
+    resp = success_response(results=[{"type": "hit"}], errors=[])
+    assert "degraded" not in resp["meta"]
+
+
+def test_anytxt_unexpected_structure_returns_invalid_response(monkeypatch) -> None:
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "anytxt")
+
+    class FakeResponse:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb): return False
+        def read(self, _max_bytes): return b'{"unexpected": "shape"}'
+
+    monkeypatch.setattr(search_backends.urllib.request, "urlopen", lambda req, timeout=5: FakeResponse())
+    result = bridge_tools.content_locator("needle", target_env="windows")
+    assert result["success"] is False
+    assert any(e["code"] == "invalid_response" for e in result["errors"])
+
+
+def test_escape_find_glob_escapes_brackets() -> None:
+    assert search_backends._escape_find_glob("test[0]") == r"test\[0\]"
+    assert search_backends._escape_find_glob(r"test\file") == r"test\\file"
+    assert search_backends._escape_find_glob("normal") == "normal"
