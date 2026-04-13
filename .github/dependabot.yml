@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Check for updates to Python dependencies in requirements.txt
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Check for updates to your GitHub Actions workflows (like CodeQL)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
