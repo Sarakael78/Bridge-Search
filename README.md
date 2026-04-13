@@ -25,7 +25,7 @@ It handles all the messy cross-OS path translations automatically, giving your a
 Stop letting your AI waste tokens and time on brute-force scanning.
 
 > [!TIP]
-> This skill is identified as **`windows-search`** for agent discovery, although the promotional name is **Bridge Search**. The underlying package and MCP server ID remain **`bridge-search`**.
+> This skill is identified as **`windows-search`** for agent discovery. The underlying package is **`bridge_search`** and the MCP server ID remains **`bridge-search`**.
 
 ## ⚡ Quick Start
 
