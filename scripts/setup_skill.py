@@ -293,6 +293,7 @@ def setup(args: argparse.Namespace) -> None:
     mcporter_config = os.path.expanduser("~/.mcporter/mcporter.json")
 
     print(f"🚀 Initializing {skill_name} setup (repo: {base_dir})")
+    print("Note: This skill is identified as 'windows-search' for agent discovery, but branded as 'Bridge Search'.")
 
     if args.venv:
         python_exe = _ensure_venv(args.venv_path)

@@ -15,7 +15,7 @@ The OS boundary is a massive bottleneck. When AI agents (like OpenClaw, Cursor, 
 
 ## The Solution
 
-Bridge Search bypasses the file system bottleneck entirely. It uses Model Context Protocol (MCP) tools to connect your AI directly to the native, hyper-optimised search engines built for Windows.
+**Bridge Search** bypasses the file system bottleneck entirely. It uses Model Context Protocol (MCP) tools to connect your AI directly to the native, hyper-optimised search engines built for Windows.
 
 It handles all the messy cross-OS path translations automatically, giving your agent two immediate superpowers:
 
@@ -23,6 +23,9 @@ It handles all the messy cross-OS path translations automatically, giving your a
 - 🔎 **AnyTXT:** Lightning-fast full-text search across documents, code, and PDFs.
 
 Stop letting your AI waste tokens and time on brute-force scanning.
+
+> [!TIP]
+> This skill is identified as **`windows-search`** for agent discovery, although the promotional name is **Bridge Search**. The underlying package and MCP server ID remain **`bridge-search`**.
 
 ## ⚡ Quick Start
 
@@ -39,20 +42,21 @@ To get blazing-fast search speeds, you need the underlying Windows indexers inst
 
 Human users can copy and paste this exact prompt to their AI agent to automate the setup:
 
-> "I need you to search my Windows files efficiently. Please navigate to your designated skills directory, clone `https://github.com/Sarakael78/Bridge-Search`, read **`README.md`** and **`SKILL.md`** in the repo root, then run `./install.sh` from the repo root. **If `./install.sh` stops for a `sudo` password, halt and ask me to run it manually.** Once installed, explicitly ensure the `bridge-search` skill is activated in your environment (for OpenClaw, verify `alsoAllow` and run `openclaw gateway restart`). Use the `bridge-search` MCP tools for all file lookups going forward, obeying the guardrails in **`SKILL.md`**."
+> "I need you to search my Windows files efficiently. Please navigate to your designated skills directory, clone `https://github.com/Sarakael78/Bridge-Search`. **If the pulled directory is not already named `windows-search`, rename it to `windows-search` immediately for discovery.** Read **`README.md`** and **`SKILL.md`** in the `windows-search` folder, then run `./install.sh` from the folder root. **If `./install.sh` stops for a `sudo` password, halt and ask me to run it manually.** Once installed, explicitly ensure the `windows-search` skill is activated in your environment (for OpenClaw, verify `alsoAllow` includes `bridge-search` and run `openclaw gateway restart`). Use the `bridge-search` MCP tools for all file lookups going forward, obeying the guardrails in **`SKILL.md`**."
 
 ### 3. Manual Installation (WSL2)
 
 Open your WSL2 terminal and run:
 
 ```bash
-git clone https://github.com/Sarakael78/Bridge-Search.git
-cd Bridge-Search
+# Clone into 'windows-search' directory for agent discovery
+git clone https://github.com/Sarakael78/Bridge-Search.git windows-search
+cd windows-search
 chmod +x install.sh
 ./install.sh
 ```
 
-The clone directory name is arbitrary (`Bridge-Search` above); the MCP server name used in clients is **`bridge-search`**.
+The clone directory name must be **`windows-search`** for the agent to correctly identify the skill; however, the internal MCP server name used in clients remains **`bridge-search`**.
 
 *(Note: `install.sh` is a bootstrap script. On Debian/Ubuntu-based WSL, it will prompt for `sudo` to install missing `python3`, `pip`, and `venv` via `apt`, then run the Python setup. On Fedora/RHEL and other non-`apt` distros, install those packages with your package manager, then run `./install.sh`—it will skip `apt` and run the Python setup only.)*
 
@@ -101,7 +105,7 @@ sequenceDiagram
 
 ## 🛠️ Provided MCP Tools
 
-Bridge Search equips your AI with the following capabilities:
+**Bridge Search** equips your AI with the following capabilities:
 
 - **`locate_file_or_folder`:** Instantly finds files by name. Uses `es.exe` on Windows (`target_env=windows`). Use `everywhere` to combine with WSL `find` under `$HOME`.
 - **`locate_content_inside_files`**: Instantly searches inside documents (PDFs, Word, text). Uses AnyTXT's HTTP API on Windows and `grep` when targeting WSL paths. Includes automatic host-IP discovery for WSL2.
@@ -144,7 +148,7 @@ Important:
 - a zero-hit search is a valid outcome, so it returns `success: true` with `results: []`
 - when multiple backends are queried, `success` may still be `true` if at least one backend returns results; always inspect `errors` and `warnings` for partial failures
 - when both `errors` and `results` are non-empty, `meta.degraded` is `true` so partial success is explicit
-- when Windows paths come back from Everything or AnyTXT, Bridge Search translates them to WSL paths when possible and preserves the original as `raw_path`
+- when Windows paths come back from Everything or AnyTXT, **Bridge Search** translates them to WSL paths when possible and preserves the original as `raw_path`
 - `manage_file(read)` returns decoded text in `results[0].content` and may include `results[0].encoding`
 
 ### Concrete response examples
@@ -245,7 +249,7 @@ Important:
 
 ## 🚑 Troubleshooting
 
-- **AnyTXT connection errors/timeouts:** Bridge Search includes **automatic WSL2 host discovery**. It tries `127.0.0.1` and then your host IP from `/etc/resolv.conf`. Use the **`get_health`** tool to diagnose exactly which URL failed. Ensure AnyTXT Searcher → Tool → HTTP Search Service is enabled on port 9921.
+- **AnyTXT connection errors/timeouts:** **Bridge Search** includes **automatic WSL2 host discovery**. It tries `127.0.0.1` and then your host IP from `/etc/resolv.conf`. Use the **`get_health`** tool to diagnose exactly which URL failed. Ensure AnyTXT Searcher → Tool → HTTP Search Service is enabled on port 9921.
 - **`get_health` reports AnyTXT failures:** Health probes hit the same runtime `/search` endpoint (with `?q=healthcheck`) for configured and fallback URLs; a working base UI URL alone is not sufficient.
 - **Everything returns "es.exe not found":** Install the **Everything CLI** from [Voidtools downloads](https://www.voidtools.com/downloads/) if you only installed the GUI. Ensure the background service is running and `es.exe` is on Windows `PATH` (or under `C:\Program Files\Everything\`). Run **`get_health`** to confirm detection.
 - **`mcporter: command not found`:** Node.js or `mcporter` is missing. Install via npm: `npm install -g @steipete/mcporter`.
@@ -300,6 +304,9 @@ Example configs now also expose:
 
 ### Manual MCP Registration
 
+> [!WARNING]
+> For AI agents to discover this skill correctly, the skill folder must be named **`windows-search`** within your designated skills directory.
+
 If you cannot run `setup_skill.py`, register stdio yourself with `mcporter`:
 
 ```bash
@@ -328,7 +335,7 @@ For OpenClaw, remove `bridge-search` from `alsoAllow` in `~/.openclaw/openclaw.j
 
 ## 🛡️ Security Model
 
-**TL;DR:** Bridge Search includes built-in safeguards to prevent your AI from accidentally modifying critical OS files or endlessly scanning your hard drive. The MCP process runs with your standard user privileges. Controls are **defence in depth**, relying on workflow flags and path resolution.
+**TL;DR:** **Bridge Search** includes built-in safeguards to prevent your AI from accidentally modifying critical OS files or endlessly scanning your hard drive. The MCP process runs with your standard user privileges. Controls are **defence in depth**, relying on workflow flags and path resolution.
 
 | **Protection Mechanism** | **Description** |
 | ----- | ----- |
