@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Ready-success.svg)](https://github.com/steipete/mcporter)
+[![CodeQL](https://github.com/Sarakael78/Bridge-Search/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/Sarakael78/Bridge-Search/actions/workflows/github-code-scanning/codeql)
 
 ## The Problem
 
