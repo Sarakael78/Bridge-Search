@@ -133,6 +133,7 @@ Errors and warnings include a stable machine-readable `code`, so callers do not 
 Important:
 
 - a zero-hit search is a valid outcome, so it returns `success: true` with `results: []`
+- when multiple backends are queried, `success` may still be `true` if at least one backend returns results; always inspect `errors` and `warnings` for partial failures
 - when Windows paths come back from Everything or AnyTXT, Bridge Search translates them to WSL paths when possible and preserves the original as `raw_path`
 - `manage_file(read)` returns decoded text in `results[0].content` and may include `results[0].encoding`
 
@@ -217,6 +218,7 @@ Important:
 - `locate_file_or_folder(query, target_env="windows", exact_match=False, limit=100, offset=0)` – Filename search.
   - `query` must be non-empty; blank or whitespace-only input returns `query_required`.
   - `target_env` = `windows`, `wsl`, or `everywhere`. Windows results call Everything, WSL results use `find`.
+  - Everything native paging (`-viewport-offset`, `-viewport-count`) is used only for `target_env="windows"` so merged `everywhere` paging stays consistent.
   - `limit`/`offset` obey `limits.max_limit` (default 500) and `limits.max_offset` (default 50 000). Paginated responses may set `meta.total_found_is_lower_bound` when paging is capped.
   - Results include both a normalized WSL `path` and the original `raw_path` for Windows hits.
 - `locate_content_inside_files(query, target_env="everywhere", wsl_search_path="", limit=50, offset=0)` – AnyTXT (`windows`) plus `grep` (`wsl`).
@@ -233,6 +235,7 @@ Important:
 ## 🚑 Troubleshooting
 
 - **AnyTXT connection errors/timeouts:** Bridge Search includes **automatic WSL2 host discovery**. It tries `127.0.0.1` and then your host IP from `/etc/resolv.conf`. Use the **`get_health`** tool to diagnose exactly which URL failed. Ensure AnyTXT Searcher → Tool → HTTP Search Service is enabled on port 9921.
+- **`get_health` reports AnyTXT failures:** Health probes hit the same runtime `/search` endpoint (with `?q=healthcheck`) for configured and fallback URLs; a working base UI URL alone is not sufficient.
 - **Everything returns "es.exe not found":** Ensure Everything is installed, the background service is running, and `es.exe` is in your Windows `PATH`. Run **`get_health`** to confirm the binary path detected.
 - **`mcporter: command not found`:** Node.js or `mcporter` is missing. Install via npm: `npm install -g @steipete/mcporter`.
 - **Agent ignores tools:** If the agent drops context and tries to use `find /mnt/c/`, remind it: *"Do not use shell commands to search. Use your `bridge-search` MCP tools."*

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import subprocess
 import urllib.error
 import urllib.request
@@ -80,16 +79,12 @@ def check_health() -> Dict[str, Any]:
         anytxt_reachable = False
         probed_urls = []
         for url in urls:
-            # Normalize to base URL for health probe
-            probe_url = url
-            if probe_url.endswith("/search"):
-                probe_url = probe_url[:-7]
-            if not probe_url.endswith("/"):
-                probe_url += "/"
-            
+            # Probe the actual search endpoint so health matches runtime behavior.
+            sep = "&" if "?" in url else "?"
+            probe_url = f"{url}{sep}q=healthcheck"
             probed_urls.append(probe_url)
             try:
-                with urllib.request.urlopen(probe_url, timeout=5) as resp:
+                with urllib.request.urlopen(probe_url, timeout=5) as resp:  # nosec B310 (local operator-configured AnyTXT endpoint)
                     if resp.status == 200:
                         anytxt_reachable = True
                         results["backends"]["anytxt"]["url_working"] = probe_url

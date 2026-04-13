@@ -28,6 +28,12 @@ Agent
 - `scripts/server.py`, `scripts/bridge_tools.py`: compatibility wrappers
 - `scripts/setup_skill.py`: installer and registration helper
 
+### Caching and performance
+
+- `resolve_path` and `canonical_path` are cached via `lru_cache` to avoid redundant subprocess calls (`wslpath`) and expensive I/O.
+- `resolve_es_exe` is cached at the module level after the first successful resolution, and revalidated on each call to avoid stale paths after install/uninstall changes.
+- Parallel execution via `ThreadPoolExecutor` ensures that backend delays do not block the entire search when targeting multiple environments.
+
 ## Request flow
 
 ### Filename search
@@ -76,7 +82,7 @@ The process still runs with the host user’s privileges.
 
 Everything is the preferred Windows filename backend.
 
-- If the installed `es.exe` supports `-viewport-offset` and `-viewport-count`, Bridge Search uses native paging.
+- If the installed `es.exe` supports `-viewport-offset` and `-viewport-count`, Bridge Search uses native paging for Windows-only locator queries.
 - If not, it falls back to bounded client-side paging.
 - Native paging is detected from the live `es.exe -help` output and exposed in response metadata.
 
@@ -130,6 +136,7 @@ All tools return:
 Important rules:
 - zero-hit searches are valid successes
 - warnings and errors include stable machine-readable codes
+- `success` can be true for partial backend outcomes when at least one backend produced results; inspect `errors` and `warnings` for degraded paths
 - file-operation failures should return structured errors instead of propagating raw exceptions
 
 ## Installer posture

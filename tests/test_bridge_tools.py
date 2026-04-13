@@ -75,14 +75,11 @@ def test_backend_enabled_env_overrides_config(monkeypatch) -> None:
     monkeypatch.delenv("BRIDGE_SEARCH_ENABLE_EVERYTHING", raising=False)
     cfg = copy.deepcopy(bridge_config._DEFAULTS)
     cfg["backends"] = {**cfg["backends"], "everything": False}
-    bridge_config._cfg_cache = cfg
-    try:
-        monkeypatch.setenv("BRIDGE_SEARCH_ENABLE_EVERYTHING", "1")
-        assert bridge_tools.backend_enabled("everything") is True
-        monkeypatch.setenv("BRIDGE_SEARCH_ENABLE_EVERYTHING", "0")
-        assert bridge_tools.backend_enabled("everything") is False
-    finally:
-        bridge_config._cfg_cache = None
+    monkeypatch.setattr(bridge_config, "get_bridge_config", lambda reload=False: cfg)
+    monkeypatch.setenv("BRIDGE_SEARCH_ENABLE_EVERYTHING", "1")
+    assert bridge_tools.backend_enabled("everything") is True
+    monkeypatch.setenv("BRIDGE_SEARCH_ENABLE_EVERYTHING", "0")
+    assert bridge_tools.backend_enabled("everything") is False
 
 
 def test_anytxt_url_env_override(monkeypatch) -> None:
@@ -157,7 +154,11 @@ def test_system_locator_uses_everything_native_paging_when_supported(monkeypatch
         return SimpleNamespace(returncode=0, stdout=payload, stderr=b"")
 
     monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
-    monkeypatch.setattr(search_backends, "resolve_path", lambda path, env: f"/mnt/d/Docs/{path.split('\\')[-1]}" if env == "wsl" else path)
+    monkeypatch.setattr(
+        search_backends,
+        "resolve_path",
+        lambda path, env: "/mnt/d/Docs/" + path.split("\\")[-1] if env == "wsl" else path,
+    )
     result = bridge_tools.system_locator("txt", target_env="windows", limit=2, offset=5)
     assert "-viewport-offset" in seen["cmd"]
     assert "-viewport-count" in seen["cmd"]
@@ -167,6 +168,27 @@ def test_system_locator_uses_everything_native_paging_when_supported(monkeypatch
     assert result["meta"]["total_found"] == 7
     assert result["meta"]["returned_count"] == 2
     assert len(result["results"]) == 2
+
+
+def test_system_locator_everywhere_disables_native_paging_for_consistent_merge(monkeypatch) -> None:
+    monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: "/mnt/c/Program Files/Everything/es.exe")
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name in ("everything", "wsl_find"))
+    monkeypatch.setattr(search_backends, "everything_supports_native_paging", lambda: True)
+    monkeypatch.setattr(search_backends, "path_allowed_for_search_result", lambda path: True)
+    seen = {}
+
+    def fake_run(cmd, capture_output=False, text=False, check=False, **kwargs):
+        seen["cmd"] = cmd
+        if text:
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return SimpleNamespace(returncode=0, stdout=b"D:\\Docs\\one.txt\n", stderr=b"")
+
+    monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
+    monkeypatch.setattr(search_backends, "resolve_path", lambda path, env: "/mnt/d/Docs/one.txt" if env == "wsl" else path)
+    result = bridge_tools.system_locator("txt", target_env="everywhere", limit=2, offset=0)
+    assert "-viewport-offset" not in seen["cmd"]
+    assert "-viewport-count" not in seen["cmd"]
+    assert result["meta"]["everything_native_paging"] is False
 
 
 def test_non_native_locator_reports_exact_total_when_known(monkeypatch) -> None:

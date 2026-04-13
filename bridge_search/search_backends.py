@@ -90,14 +90,22 @@ def decode_windows_output(raw: bytes) -> str:
     return raw.decode("utf-8", "replace")
 
 
+_ES_EXE_CACHE: Optional[str] = None
+
+
 def resolve_es_exe() -> Optional[str]:
     """Locate Everything's `es.exe` from standard paths or Windows PATH."""
+    global _ES_EXE_CACHE
+    if _ES_EXE_CACHE is not None and os.path.exists(_ES_EXE_CACHE):
+        return _ES_EXE_CACHE
+    _ES_EXE_CACHE = None
     candidates = [
         "/mnt/c/Program Files/Everything/es.exe",
         "/mnt/c/Program Files (x86)/Everything/es.exe",
     ]
     for candidate in candidates:
         if os.path.exists(candidate):
+            _ES_EXE_CACHE = candidate
             return candidate
     cmd_exe = "/mnt/c/Windows/System32/cmd.exe"
     if os.path.exists(cmd_exe):
@@ -108,6 +116,7 @@ def resolve_es_exe() -> Optional[str]:
                 if line.strip().lower().endswith("es.exe"):
                     wsl = resolve_path(line.strip(), "wsl")
                     if wsl and os.path.exists(wsl):
+                        _ES_EXE_CACHE = wsl
                         return wsl
         except (OSError, subprocess.TimeoutExpired):
             pass
@@ -141,8 +150,16 @@ def everything_supports_native_paging() -> bool:
     return "-viewport-offset" in help_text and "-viewport-count" in help_text
 
 
-def _everything_command(es_exe: str, query: str, exact_match: bool, limit: int, offset: int) -> Tuple[List[str], bool]:
-    supports_paging = everything_supports_native_paging()
+def _everything_command(
+    es_exe: str,
+    query: str,
+    exact_match: bool,
+    limit: int,
+    offset: int,
+    *,
+    allow_native_paging: bool,
+) -> Tuple[List[str], bool]:
+    supports_paging = allow_native_paging and everything_supports_native_paging()
     cmd = [es_exe]
     if supports_paging:
         cmd.extend(["-json", "-full-path-and-name", "-viewport-offset", str(offset), "-viewport-count", str(limit + 1)])
@@ -247,7 +264,14 @@ def system_locator(query: str, target_env: str = "windows", exact_match: bool = 
             if not es_exe:
                 e_errors.append(make_issue(code="backend_unavailable", message="es.exe not found. Check Everything installation or Windows PATH.", source="windows-everything"))
             else:
-                cmd, native_paging = _everything_command(es_exe, query, exact_match, limit, offset)
+                cmd, native_paging = _everything_command(
+                    es_exe,
+                    query,
+                    exact_match,
+                    limit,
+                    offset,
+                    allow_native_paging=not run_wsl_find,
+                )
                 process = subprocess.run(cmd, capture_output=True, timeout=_subprocess_timeout())
                 if process.returncode == 0 and process.stdout:
                     lines = _parse_everything_results(process.stdout, native_paging=native_paging)
@@ -411,7 +435,7 @@ def content_locator(query: str, target_env: str = "everywhere", wsl_search_path:
             try:
                 sep = "&" if urllib.parse.urlparse(url).query else "?"
                 req = urllib.request.Request(f"{url}{sep}q={urllib.parse.quote(query)}")
-                with urllib.request.urlopen(req, timeout=_subprocess_timeout()) as response:
+                with urllib.request.urlopen(req, timeout=_subprocess_timeout()) as response:  # nosec B310 (config-controlled local AnyTXT HTTP service)
                     if response.status == 200:
                         raw = response.read(cap_anytxt + 1)
                         if len(raw) > cap_anytxt:

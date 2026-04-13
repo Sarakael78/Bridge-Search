@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import os
 import re
 import subprocess
@@ -34,6 +35,7 @@ _RESTRICTED_MINIMAL: Tuple[str, ...] = (
 _WINDOWS_ABS_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
+@functools.lru_cache(maxsize=4096)
 def canonical_path(path: str) -> str:
     """Return a normalized real path when possible."""
     try:
@@ -89,6 +91,7 @@ def auto_target_env(path: str) -> str:
     return "wsl"
 
 
+@functools.lru_cache(maxsize=4096)
 def resolve_path(path: str, target_env: str) -> str:
     """Translate between Windows and WSL paths when possible."""
     if not path:
