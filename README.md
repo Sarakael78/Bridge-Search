@@ -343,6 +343,8 @@ For OpenClaw, remove `bridge-search` from `alsoAllow` in `~/.openclaw/openclaw.j
 
 See `ARCHITECTURE.md` for the internal design, backend flow, pagination strategy, timeout model, and installer posture.
 
+Release notes: [CHANGELOG.md](CHANGELOG.md).
+
 ## 🤝 Contributing & Support
 
 If you encounter a bug or have a feature request, please [open an issue](https://github.com/Sarakael78/Bridge-Search/issues). To contribute code:
