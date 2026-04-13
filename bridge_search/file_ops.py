@@ -4,7 +4,7 @@ import os
 import shutil
 from typing import Any, Dict, List, Optional, Tuple
 
-from .config import get_bridge_config, lim
+from .config import clamp_int, get_bridge_config, lim
 from .constants import Actions, ErrorCodes
 from .path_policy import canonical_path, is_path_allowed, resolve_path
 from .result_models import error_response, make_issue, success_response
@@ -19,11 +19,6 @@ _GUARDED_ACTIONS = {
     Actions.DELETE,
     Actions.MKDIR,
 }
-
-
-def clamp_int(value: int, low: int, high: int) -> int:
-    """Clamp an integer to an inclusive range."""
-    return max(low, min(high, int(value)))
 
 
 def is_binary_file(filepath: str) -> bool:

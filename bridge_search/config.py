@@ -154,6 +154,11 @@ def anytxt_search_url() -> str:
     return normalize_anytxt_url(raw)
 
 
+def clamp_int(value: int, low: int, high: int) -> int:
+    """Clamp an integer to an inclusive range."""
+    return max(low, min(high, int(value)))
+
+
 def backend_enabled(name: str) -> bool:
     """Check whether a backend is enabled after applying env overrides."""
     env_key = _BACKEND_ENV.get(name)

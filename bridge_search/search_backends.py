@@ -11,9 +11,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
 
-from .config import anytxt_search_url, backend_enabled, command_timeout_seconds, get_bridge_config, get_wsl_host_ip, lim
+from .config import anytxt_search_url, backend_enabled, clamp_int, command_timeout_seconds, get_bridge_config, get_wsl_host_ip, lim
 from .constants import ErrorCodes
-from .file_ops import clamp_int
 from .path_policy import allowlist_filters_search_results, canonical_path, is_path_allowed, looks_like_windows_abs_path, path_allowed_for_search_result, resolve_path
 from .result_models import error_response, make_issue, success_response
 
@@ -22,7 +21,7 @@ _EVERYTHING_HELP_CACHE: Optional[str] = None
 _CACHE_LOCK = threading.Lock()
 
 
-def _get_effective_anytxt_urls() -> List[str]:
+def get_effective_anytxt_urls() -> List[str]:
     """Return a list of URLs to try for AnyTXT, with WSL2 host IP fallback if localhost is configured."""
     primary = anytxt_search_url()
     urls = [primary]
@@ -441,7 +440,7 @@ def content_locator(query: str, target_env: str = "everywhere", wsl_search_path:
         used_url = ""
         last_err = None
         anytxt_ok = False
-        effective_urls = _get_effective_anytxt_urls()
+        effective_urls = get_effective_anytxt_urls()
         for url in effective_urls:
             try:
                 sep = "&" if urllib.parse.urlparse(url).query else "?"

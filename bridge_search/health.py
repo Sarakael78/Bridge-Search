@@ -6,7 +6,7 @@ import urllib.request
 from typing import Any, Dict, List, Tuple
 
 from . import config
-from .search_backends import _get_effective_anytxt_urls, resolve_es_exe
+from .search_backends import get_effective_anytxt_urls, resolve_es_exe
 
 
 def run_command_capture(cmd: List[str], timeout: float = 30) -> Tuple[int, str, str]:
@@ -75,7 +75,7 @@ def check_health() -> Dict[str, Any]:
                 results["backends"]["everything"]["version"] = out.strip()
 
     if ba:
-        urls = _get_effective_anytxt_urls()
+        urls = get_effective_anytxt_urls()
         anytxt_reachable = False
         probed_urls = []
         for url in urls:
