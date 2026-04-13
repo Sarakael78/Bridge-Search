@@ -5,6 +5,12 @@
 [![MCP Compatible](https://img.shields.io/badge/MCP-Ready-success.svg)](https://github.com/steipete/mcporter)
 [![CodeQL](https://github.com/Sarakael78/Bridge-Search/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/Sarakael78/Bridge-Search/actions/workflows/github-code-scanning/codeql)
 
+[![GitHub Release](https://img.shields.io/github/v/release/Sarakael78/Bridge-Search?color=blue)](https://github.com/Sarakael78/Bridge-Search/releases)
+[![Tests](https://github.com/Sarakael78/Bridge-Search/actions/workflows/test.yml/badge.svg)](https://github.com/Sarakael78/Bridge-Search/actions/workflows/test.yml)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Checked with mypy](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
+[![Dependabot](https://img.shields.io/github/dependabot/Sarakael78/Bridge-Search)](https://github.com/Sarakael78/Bridge-Search/pulls?q=is%3Apr+is%3Aopen+label%3Adependabot)
+
 ## The Problem
 
 The OS boundary is a massive bottleneck. When AI agents (like OpenClaw, Cursor, or Claude) try to search Windows files (`/mnt/c` etc.) from inside WSL2 using standard Linux commands, the results are disastrous. The search takes forever, the agent times out, loses its context window, or simply hallucinates file paths to move on.
