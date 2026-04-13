@@ -1,2 +1,3 @@
-# Pin runtime dependency; regenerate when upgrading: edit version and test.
+# Pin runtime dependency; must match pyproject.toml [project].dependencies.
+# Regenerate when upgrading: edit version here AND in pyproject.toml, then test.
 mcp==1.27.0

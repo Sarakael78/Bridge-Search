@@ -11,7 +11,7 @@ from .result_models import error_response, make_issue, success_response
 
 _TEXT_READ_ENCODINGS: Tuple[str, ...] = ("utf-8", "utf-8-sig", "cp1252")
 _WRITE_MODES = {"replace", "append"}
-_MUTABLE_ACTIONS = {
+_GUARDED_ACTIONS = {
     Actions.READ,
     Actions.WRITE,
     Actions.COPY,
@@ -66,7 +66,7 @@ def read_text_with_fallbacks(filepath: str) -> Tuple[bool, str, Optional[str], b
             return True, raw.decode("utf-16"), "utf-16", truncated
         except UnicodeDecodeError:
             return False, "", None, truncated
-    if b"\x00" in raw and not raw.startswith((b"\xef\xbb\xbf",)):
+    if b"\x00" in raw:
         return False, "", None, truncated
     for encoding in _TEXT_READ_ENCODINGS:
         try:
@@ -127,7 +127,7 @@ def hybrid_file_io(
             meta=meta,
         )
 
-    if action in _MUTABLE_ACTIONS:
+    if action in _GUARDED_ACTIONS:
         if not is_path_allowed(source_path, target_env):
             return error_response(code=ErrorCodes.PATH_BLOCKED, message="Access to protected path blocked.", path=source_path, meta=meta)
         if destination_path and action in {Actions.COPY, Actions.MOVE} and not is_path_allowed(destination_path, target_env):
@@ -223,7 +223,7 @@ def hybrid_file_io(
                     _file_result(
                         "write",
                         src,
-                        bytes_written=len(content or ""),
+                        bytes_written=len((content or "").encode("utf-8")),
                         encoding="utf-8",
                         write_mode=normalized_write_mode,
                     )
@@ -238,7 +238,7 @@ def hybrid_file_io(
         except OSError as exc:
             return error_response(code=ErrorCodes.WRITE_FAILED, message=str(exc), path=source_path, meta=meta)
 
-    if action == "copy":
+    if action == Actions.COPY:
         problem = validate_existing_source() or validate_destination()
         if problem:
             return problem
@@ -264,7 +264,7 @@ def hybrid_file_io(
         except OSError as exc:
             return error_response(code=ErrorCodes.COPY_FAILED, message=str(exc), path=destination_path, meta=meta)
 
-    if action == "move":
+    if action == Actions.MOVE:
         problem = validate_existing_source() or validate_destination()
         if problem:
             return problem
@@ -285,7 +285,7 @@ def hybrid_file_io(
         except OSError as exc:
             return error_response(code=ErrorCodes.MOVE_FAILED, message=str(exc), path=destination_path, meta=meta)
 
-    if action == "mkdir":
+    if action == Actions.MKDIR:
         blocked = symlink_policy_error(action, src)
         if blocked is not None:
             return blocked
@@ -295,7 +295,7 @@ def hybrid_file_io(
         except OSError as exc:
             return error_response(code=ErrorCodes.MKDIR_FAILED, message=str(exc), path=source_path, meta=meta)
 
-    if action == "delete":
+    if action == Actions.DELETE:
         problem = validate_existing_source()
         if problem:
             return problem
@@ -392,10 +392,6 @@ def catalog_directory(
                         continue
 
                 indent = "  " * depth
-                for f in files_to_process:
-                    if not record_entry(f"{indent}  📄 {f.name}"):
-                        return
-                
                 if depth < max_depth:
                     for d in dirs_to_process:
                         if not record_entry(f"{indent}  📂 {d.name}/"):
@@ -403,6 +399,10 @@ def catalog_directory(
                         walk_level(d.path, depth + 1)
                         if done:
                             return
+
+                for f in files_to_process:
+                    if not record_entry(f"{indent}  📄 {f.name}"):
+                        return
 
         except OSError:
             pass

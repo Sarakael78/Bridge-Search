@@ -9,15 +9,15 @@ import json
 import os
 import subprocess
 import sys
-import urllib.error
-import urllib.request
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from bridge_search.health import check_health, run_command_capture
+# Safe at module level: bridge_search.health does NOT depend on mcp.
+# If that ever changes, defer this import or guard it.
+from bridge_search.health import check_health, run_command_capture  # noqa: E402
 
 
 DEFAULT_ANYTXT_URL = "http://127.0.0.1:9921/search"
@@ -115,7 +115,7 @@ def _pip_install(
         if not run_command(cmd, f"Installing dependencies from {requirements_txt}"):
             return False
     else:
-        cmd = [python_exe, "-m", "pip", "install", "mcp"]
+        cmd = [python_exe, "-m", "pip", "install", "mcp==1.27.0"]
         if user:
             cmd.append("--user")
         if not run_command(cmd, "Installing mcp Python package (requirements.txt missing)"):

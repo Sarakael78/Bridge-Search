@@ -189,7 +189,7 @@ def is_path_allowed(path: str, target_env: str) -> bool:
         ok = False
         for prefix in allowed:
             pl = prefix.lower().replace("\\", "/").rstrip("/")
-            if cl == pl or cl.startswith(pl + os.sep):
+            if cl == pl or cl.startswith(pl + "/"):
                 ok = True
                 break
         if not ok:

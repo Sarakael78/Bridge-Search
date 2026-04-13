@@ -107,9 +107,9 @@ def _load_bridge_config(paths: Tuple[str, ...]) -> Dict[str, Any]:
                 raw = json.load(handle)
             user = strip_meta(raw) if isinstance(raw, dict) else {}
             merged = deep_merge(merged, user)
+            break
         except (OSError, json.JSONDecodeError, TypeError) as exc:
             print(f"bridge-search: warning: could not load {path}: {exc}", file=sys.stderr)
-        break
     return merged
 
 

@@ -97,7 +97,7 @@ AnyTXT is accessed over HTTP.
 ### WSL backends
 
 - WSL filename search uses `find`
-- WSL content search uses `grep`
+- WSL content search uses `grep` with `-m 2` (at most 2 matching lines per file) to keep results concise and prevent runaway scans
 - Both are capped by config and protected by timeouts
 - Root-wide scanning is blocked by default
 
@@ -151,4 +151,5 @@ The installer no longer mutates `~/.openclaw/openclaw.json` unless `--openclaw-a
 
 - Native paging is currently strongest on Everything because the CLI exposes viewport flags.
 - WSL `find` and `grep` still rely on bounded client-side short-circuiting, not true backend offsets.
+- Content search (`content_locator`) does not deduplicate across AnyTXT and WSL grep backends because content hits include line numbers and snippets that differ between engines. Callers should expect possible overlap when `target_env=everywhere`.
 - Safety is policy-based and pragmatic, not a hardened isolation boundary.

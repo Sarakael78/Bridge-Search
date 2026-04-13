@@ -75,4 +75,4 @@ If you catch yourself looking for an AnyTXT CLI, or repeating a slower search af
 
 ## When details matter
 
-Use **`README.md`** for install, troubleshooting, and security. Implementation details live in **`scripts/bridge_tools.py`** and **`scripts/server.py`** (those files are authoritative—do not rely on third-party copies of the bridge code).
+Use **`README.md`** for install, troubleshooting, and security. Implementation details live in the **`bridge_search/`** package (the authoritative source): `server.py`, `search_backends.py`, `file_ops.py`, `path_policy.py`, `config.py`, and `result_models.py`. The `scripts/` directory contains compatibility wrappers and the installer.

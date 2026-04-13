@@ -122,7 +122,7 @@ Bridge Search equips your AI with the following capabilities:
 
 ### Unified response contract
 
-All four tools return the same top-level payload shape:
+All five tools return the same top-level payload shape:
 
 - `success`
 - `results`
@@ -226,6 +226,7 @@ Important:
 - `locate_content_inside_files(query, target_env="everywhere", wsl_search_path="", limit=50, offset=0)` – AnyTXT (`windows`) plus `grep` (`wsl`).
   - `query` must be non-empty; blank or whitespace-only input returns `query_required`.
   - `wsl_search_path` defaults to `$HOME`; use `allow_grep_from_filesystem_root` or `BRIDGE_SEARCH_ALLOW_ROOT_GREP=1` to allow `/`.
+  - WSL grep returns at most **2 matching lines per file** (`-m 2`) to keep results concise and fast; use `manage_file(read)` to see full file contents.
   - Responses may include `line_number` (WSL) or `snippet`/`raw_path` for AnyTXT.
 - `map_directory(target_path, max_depth=2, include_extensions=None, exclude_hidden=True, target_env="auto", limit=100, offset=0)` – Paginated directory map.
   - Depth capped by `limits.max_depth`, and listings stop after `limits.max_catalog_lines` entries to avoid blowing the cache.
@@ -335,4 +336,4 @@ If you encounter a bug or have a feature request, please [open an issue](https:/
 
 ## 📝 Licence
 
-MIT
+[MIT](LICENSE)

@@ -1,20 +1,28 @@
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 from mcp.server.fastmcp import FastMCP
 
 from .bridge_tools import catalog_directory, content_locator, hybrid_file_io, system_locator
 from .health import check_health
+from .result_models import success_response
 
 mcp = FastMCP("bridge-search")
 
 
 @mcp.tool()
-def get_health() -> dict[str, Any]:
+def get_health() -> Dict[str, Any]:
     """
     Perform a health check of the search backends (Everything, AnyTXT, WSL).
     Use this to diagnose connectivity or service issues.
+    Returns the standard bridge response shape: success, results, errors, warnings, meta.
     """
-    return check_health()
+    raw = check_health()
+    return success_response(
+        results=[{"type": "health_check", "backends": raw["backends"]}],
+        errors=raw.get("errors", []),
+        warnings=raw.get("warnings", []),
+        meta={"overall_success": raw["overall_success"]},
+    )
 
 
 @mcp.tool()
@@ -27,7 +35,7 @@ def manage_file(
     overwrite: bool = False,
     is_confirmed: bool = False,
     write_mode: str = "replace",
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """
     Perform robust file operations across NTFS and ext4 filesystems.
     Valid actions: 'read', 'write', 'copy', 'move', 'delete', 'mkdir'.
@@ -52,12 +60,12 @@ def manage_file(
 def map_directory(
     target_path: str,
     max_depth: int = 2,
-    include_extensions: Optional[list[str]] = None,
+    include_extensions: Optional[List[str]] = None,
     exclude_hidden: bool = True,
     target_env: str = "auto",
     limit: int = 100,
     offset: int = 0,
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """
     Generate a hierarchical map of a directory.
     Returns the standard bridge response shape: success, results, errors, warnings, meta.
@@ -76,7 +84,7 @@ def locate_file_or_folder(
     exact_match: bool = False,
     limit: int = 100,
     offset: int = 0,
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """
     Filename search: Everything (es.exe) on Windows; optional WSL find (HOME by default, not full '/').
     Use target_env 'everywhere' for both, 'wsl' for Linux-side find only, 'windows' for Everything only.
@@ -97,7 +105,7 @@ def locate_content_inside_files(
     wsl_search_path: str = "",
     limit: int = 50,
     offset: int = 0,
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """
     Search for text inside files (grep on WSL, AnyTXT HTTP on Windows).
     Enable/disable WSL grep vs AnyTXT via backends.wsl_grep / backends.anytxt (or BRIDGE_SEARCH_ENABLE_WSL_GREP / BRIDGE_SEARCH_ENABLE_ANYTXT).

@@ -105,14 +105,14 @@ def check_health() -> Dict[str, Any]:
 
     # WSL backends are usually 'ok' if the server is running, but we can verify presence
     if bf:
-        if subprocess.run(["which", "find"], capture_output=True).returncode == 0:
+        if subprocess.run(["which", "find"], capture_output=True, timeout=10).returncode == 0:
             results["backends"]["wsl_find"]["status"] = "ok"
         else:
             results["backends"]["wsl_find"]["status"] = "error"
             results["overall_success"] = False
 
     if bg:
-        if subprocess.run(["which", "grep"], capture_output=True).returncode == 0:
+        if subprocess.run(["which", "grep"], capture_output=True, timeout=10).returncode == 0:
             results["backends"]["wsl_grep"]["status"] = "ok"
         else:
             results["backends"]["wsl_grep"]["status"] = "error"
