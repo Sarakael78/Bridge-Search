@@ -59,7 +59,7 @@ def _wsl_grep_command(query: str, root: str) -> List[str]:
     # -m 2: limit to 2 matches per file to keep results concise and fast
     cmd = ["grep", "-rni", "-m", "2"]
     # grep matches --exclude-dir against basenames, so use `mnt` when searching from `/`.
-    if canonical_path(root).rstrip(os.sep) == "":
+    if canonical_path(root) == "/":
         cmd.append("--exclude-dir=mnt")
     cmd.extend(["-F", "-e", query, "--", root])
     return cmd
@@ -96,36 +96,38 @@ _ES_EXE_CACHE: Optional[str] = None
 
 
 def resolve_es_exe() -> Optional[str]:
-    """Locate Everything's `es.exe` from standard paths or Windows PATH."""
+    """Locate Everything's `es.exe` from standard paths or Windows PATH.
+
+    The entire resolution runs under ``_CACHE_LOCK`` to prevent redundant
+    subprocess spawns from concurrent threads.
+    """
     global _ES_EXE_CACHE
     with _CACHE_LOCK:
         if _ES_EXE_CACHE is not None and os.path.exists(_ES_EXE_CACHE):
             return _ES_EXE_CACHE
         _ES_EXE_CACHE = None
-    candidates = [
-        "/mnt/c/Program Files/Everything/es.exe",
-        "/mnt/c/Program Files (x86)/Everything/es.exe",
-    ]
-    for candidate in candidates:
-        if os.path.exists(candidate):
-            with _CACHE_LOCK:
+        candidates = [
+            "/mnt/c/Program Files/Everything/es.exe",
+            "/mnt/c/Program Files (x86)/Everything/es.exe",
+        ]
+        for candidate in candidates:
+            if os.path.exists(candidate):
                 _ES_EXE_CACHE = candidate
-            return candidate
-    cmd_exe = "/mnt/c/Windows/System32/cmd.exe"
-    if os.path.exists(cmd_exe):
-        try:
-            result = subprocess.run([cmd_exe, "/c", "where", "es.exe"], capture_output=True, timeout=_subprocess_timeout())
-            output = decode_windows_output(result.stdout)
-            for line in output.splitlines():
-                if line.strip().lower().endswith("es.exe"):
-                    wsl = resolve_path(line.strip(), "wsl")
-                    if wsl and os.path.exists(wsl):
-                        with _CACHE_LOCK:
+                return candidate
+        cmd_exe = "/mnt/c/Windows/System32/cmd.exe"
+        if os.path.exists(cmd_exe):
+            try:
+                result = subprocess.run([cmd_exe, "/c", "where", "es.exe"], capture_output=True, timeout=_subprocess_timeout())
+                output = decode_windows_output(result.stdout)
+                for line in output.splitlines():
+                    if line.strip().lower().endswith("es.exe"):
+                        wsl = resolve_path(line.strip(), "wsl")
+                        if wsl and os.path.exists(wsl):
                             _ES_EXE_CACHE = wsl
-                        return wsl
-        except (OSError, subprocess.TimeoutExpired):
-            pass
-    return None
+                            return wsl
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        return None
 
 
 def everything_help_text(force_reload: bool = False) -> str:
@@ -133,26 +135,23 @@ def everything_help_text(force_reload: bool = False) -> str:
     with _CACHE_LOCK:
         if _EVERYTHING_HELP_CACHE is not None and not force_reload:
             return _EVERYTHING_HELP_CACHE
-    es_exe = resolve_es_exe()
-    if not es_exe:
-        with _CACHE_LOCK:
+        es_exe = resolve_es_exe()
+        if not es_exe:
             _EVERYTHING_HELP_CACHE = ""
-        return ""
-    try:
-        result = subprocess.run(
-            [es_exe, "-help"],
-            capture_output=True,
-            timeout=_subprocess_timeout(),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        with _CACHE_LOCK:
+            return ""
+        try:
+            result = subprocess.run(
+                [es_exe, "-help"],
+                capture_output=True,
+                timeout=_subprocess_timeout(),
+            )
+        except (OSError, subprocess.TimeoutExpired):
             _EVERYTHING_HELP_CACHE = ""
-        return ""
-    payload = result.stdout or result.stderr or b""
-    text = decode_windows_output(payload)
-    with _CACHE_LOCK:
+            return ""
+        payload = result.stdout or result.stderr or b""
+        text = decode_windows_output(payload)
         _EVERYTHING_HELP_CACHE = text
-    return text
+        return text
 
 
 def everything_supports_native_paging() -> bool:
@@ -300,8 +299,6 @@ def system_locator(query: str, target_env: str = "windows", exact_match: bool = 
                         e_results.append({"type": "search_hit", "path": mapped, "raw_path": raw_path, "source": "windows-everything"})
                         if native_paging and len(e_results) >= limit + 1:
                             break
-                elif process.returncode == 0 and native_paging and process.stdout:
-                    pass
                 elif process.stderr:
                     e_errors.append(make_issue(code=ErrorCodes.BACKEND_ERROR, message=decode_windows_output(process.stderr).strip(), source="windows-everything"))
         except subprocess.TimeoutExpired:

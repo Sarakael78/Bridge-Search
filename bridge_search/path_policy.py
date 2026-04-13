@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import functools
 import os
 import re
 import subprocess
-from typing import List, Optional, Tuple
+import threading
+from typing import Dict, List, Optional, Tuple
 
 from .config import command_timeout_seconds, get_bridge_config
 
@@ -35,13 +35,31 @@ _RESTRICTED_MINIMAL: Tuple[str, ...] = (
 _WINDOWS_ABS_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
-@functools.lru_cache(maxsize=4096)
+_CANONICAL_CACHE: Dict[str, str] = {}
+_CANONICAL_CACHE_MAX = 4096
+_CANONICAL_LOCK = threading.Lock()
+
+
 def canonical_path(path: str) -> str:
-    """Return a normalized real path when possible."""
+    """Return a normalized real path when possible.
+
+    Successful ``realpath`` results are cached.  When ``realpath`` raises
+    (broken symlink, permission error) the ``normpath`` fallback is returned
+    but *not* cached so a future call can retry after conditions change.
+    """
+    with _CANONICAL_LOCK:
+        cached = _CANONICAL_CACHE.get(path)
+    if cached is not None:
+        return cached
     try:
-        return os.path.realpath(path)
+        result = os.path.realpath(path)
     except OSError:
         return os.path.normpath(path)
+    with _CANONICAL_LOCK:
+        if len(_CANONICAL_CACHE) >= _CANONICAL_CACHE_MAX:
+            _CANONICAL_CACHE.clear()
+        _CANONICAL_CACHE[path] = result
+    return result
 
 
 def looks_like_windows_abs_path(path: str) -> bool:
@@ -91,11 +109,35 @@ def auto_target_env(path: str) -> str:
     return "wsl"
 
 
-@functools.lru_cache(maxsize=4096)
+_RESOLVE_CACHE: Dict[Tuple[str, str], str] = {}
+_RESOLVE_CACHE_MAX = 4096
+_RESOLVE_LOCK = threading.Lock()
+
+
 def resolve_path(path: str, target_env: str) -> str:
-    """Translate between Windows and WSL paths when possible."""
+    """Translate between Windows and WSL paths when possible.
+
+    Successful translations (where the result differs from the input) are
+    cached.  Failures fall through to the identity return but are *not*
+    cached so transient ``wslpath`` errors don't stick permanently.
+    """
     if not path:
         return ""
+    key = (path, target_env)
+    with _RESOLVE_LOCK:
+        cached = _RESOLVE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    result = _resolve_path_uncached(path, target_env)
+    if result != path:
+        with _RESOLVE_LOCK:
+            if len(_RESOLVE_CACHE) >= _RESOLVE_CACHE_MAX:
+                _RESOLVE_CACHE.clear()
+            _RESOLVE_CACHE[key] = result
+    return result
+
+
+def _resolve_path_uncached(path: str, target_env: str) -> str:
     env = auto_target_env(path) if target_env == "auto" else target_env
     if env == "wsl" and looks_like_windows_abs_path(path):
         try:
