@@ -20,7 +20,7 @@ Use this skill to set up and run the MCP bridge stored in this skill's `scripts/
 1. Confirm WSL2 is the current environment.
 2. Verify Python 3.10+ and the `mcp` package are available (prefer **`./install.sh`** from the repo root on Debian/Ubuntu WSL—it installs missing `python3`/`pip`/`venv` via `apt` when needed, then runs **`setup_skill.py --venv`**; otherwise run **`python3 scripts/setup_skill.py --venv`**; add **`--dev`** as needed; **`--skip-checks`** if backends exclude Windows services). If **`sudo`** prompts for a password, the human must run **`./install.sh`** locally.
 3. Confirm Windows-side prerequisites match **`backends`** in **`config/bridge-search.config.json`** (defaults: Everything + AnyTXT):
-   - Voidtools Everything is installed and running (if **`backends.everything`**).
+   - Voidtools Everything is installed and running (if **`backends.everything`**). **`es.exe`** comes from the **Everything CLI** package on [Voidtools downloads](https://www.voidtools.com/downloads/)—it is a separate download from the main GUI installer; ensure it is on Windows `PATH` or under `C:\Program Files\Everything\`.
    - AnyTXT Searcher is installed and the **HTTP Search Service** is enabled on the configured URL (default **`http://127.0.0.1:9921/search`**) if **`backends.anytxt`**.
    - Optional: `curl http://127.0.0.1:9921/` or rely on **`setup_skill.py`** post-install probes.
 4. **Tool-Only Enforcement:**

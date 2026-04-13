@@ -25,7 +25,7 @@ Stop letting your AI waste tokens and time on brute-force scanning.
 
 To get blazing-fast search speeds, you need the underlying Windows indexers installed and running. (Defaults assume both are available):
 
-- **[Voidtools Everything](https://www.voidtools.com/):** Install and ensure the background service is running (`es.exe` on PATH or under `C:\Program Files\Everything\`).
+- **[Voidtools Everything](https://www.voidtools.com/):** Install the main app and ensure the background service is running. **`es.exe` is not always bundled with the GUI installer**—download the **Everything Command Line Interface (CLI)** from the [Voidtools downloads](https://www.voidtools.com/downloads/) page (separate package), then put `es.exe` on Windows `PATH` or under `C:\Program Files\Everything\`.
 - **[AnyTXT Searcher](https://anytxt.net/):** Install it, open the app, then go to **Tool → HTTP Search Service** and enable it.
 
 *(Note: If you only want to use one of these, or just want to use WSL native search, Bridge Search is fully configurable. See Advanced Configuration below).*
@@ -239,7 +239,7 @@ Important:
 
 - **AnyTXT connection errors/timeouts:** Bridge Search includes **automatic WSL2 host discovery**. It tries `127.0.0.1` and then your host IP from `/etc/resolv.conf`. Use the **`get_health`** tool to diagnose exactly which URL failed. Ensure AnyTXT Searcher → Tool → HTTP Search Service is enabled on port 9921.
 - **`get_health` reports AnyTXT failures:** Health probes hit the same runtime `/search` endpoint (with `?q=healthcheck`) for configured and fallback URLs; a working base UI URL alone is not sufficient.
-- **Everything returns "es.exe not found":** Ensure Everything is installed, the background service is running, and `es.exe` is in your Windows `PATH`. Run **`get_health`** to confirm the binary path detected.
+- **Everything returns "es.exe not found":** Install the **Everything CLI** from [Voidtools downloads](https://www.voidtools.com/downloads/) if you only installed the GUI. Ensure the background service is running and `es.exe` is on Windows `PATH` (or under `C:\Program Files\Everything\`). Run **`get_health`** to confirm detection.
 - **`mcporter: command not found`:** Node.js or `mcporter` is missing. Install via npm: `npm install -g @steipete/mcporter`.
 - **Agent ignores tools:** If the agent drops context and tries to use `find /mnt/c/`, remind it: *"Do not use shell commands to search. Use your `bridge-search` MCP tools."*
 
