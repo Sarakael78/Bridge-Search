@@ -6,6 +6,7 @@ import urllib.request
 from typing import Any, Dict, List, Tuple
 
 from . import config
+from .constants import ErrorCodes
 from .search_backends import get_effective_anytxt_urls, resolve_es_exe
 
 
@@ -45,7 +46,7 @@ def check_health() -> Dict[str, Any]:
     if not any([be, ba, bf, bg]):
         results["overall_success"] = False
         results["errors"].append({
-            "code": "no_backends_enabled",
+            "code": ErrorCodes.NO_BACKENDS_ENABLED,
             "message": "All search backends are disabled in config/env."
         })
         return results
@@ -56,7 +57,7 @@ def check_health() -> Dict[str, Any]:
             results["backends"]["everything"]["status"] = "error"
             results["backends"]["everything"]["message"] = "es.exe not found."
             results["errors"].append({
-                "code": "everything_missing",
+                "code": ErrorCodes.EVERYTHING_MISSING,
                 "message": "Everything (es.exe) not found. Is it installed and on Windows PATH?"
             })
             results["overall_success"] = False
@@ -66,7 +67,7 @@ def check_health() -> Dict[str, Any]:
                 results["backends"]["everything"]["status"] = "error"
                 results["backends"]["everything"]["message"] = f"es.exe failed: {err or out}"
                 results["errors"].append({
-                    "code": "everything_service_error",
+                    "code": ErrorCodes.EVERYTHING_SERVICE_ERROR,
                     "message": "Everything CLI returned an error. Is the Everything service running?"
                 })
                 results["overall_success"] = False
@@ -96,7 +97,7 @@ def check_health() -> Dict[str, Any]:
             results["backends"]["anytxt"]["status"] = "error"
             results["backends"]["anytxt"]["probed_urls"] = probed_urls
             results["errors"].append({
-                "code": "anytxt_unreachable",
+                "code": ErrorCodes.ANYTXT_UNREACHABLE,
                 "message": f"AnyTXT HTTP service not reachable at configured URLs: {probed_urls}"
             })
             results["overall_success"] = False

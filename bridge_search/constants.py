@@ -51,3 +51,7 @@ class ErrorCodes:
     INVALID_RESPONSE: Final[str] = "invalid_response"
     SEARCH_ROOT_BLOCKED: Final[str] = "search_root_blocked"
     CATALOG_FAILED: Final[str] = "catalog_failed"
+    NO_BACKENDS_ENABLED: Final[str] = "no_backends_enabled"
+    EVERYTHING_MISSING: Final[str] = "everything_missing"
+    EVERYTHING_SERVICE_ERROR: Final[str] = "everything_service_error"
+    ANYTXT_UNREACHABLE: Final[str] = "anytxt_unreachable"
