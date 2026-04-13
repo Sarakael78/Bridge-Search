@@ -1,7 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Get absolute path of the script directory
+INITIAL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CURRENT_DIR_NAME="$(basename "$INITIAL_SCRIPT_DIR")"
+
+# Enforce directory name for agent discovery
+if [ "$CURRENT_DIR_NAME" != "windows-search" ]; then
+    PARENT_DIR="$(dirname "$INITIAL_SCRIPT_DIR")"
+    TARGET_DIR="$PARENT_DIR/windows-search"
+    
+    if [ -e "$TARGET_DIR" ]; then
+        echo "[!] Warning: Cannot automatically rename to 'windows-search' because a file or directory already exists at $TARGET_DIR."
+        echo "[!] Agent discovery may fail if this skill is not in a 'windows-search' folder."
+        SCRIPT_DIR="$INITIAL_SCRIPT_DIR"
+    else
+        echo "[*] Renaming directory from '$CURRENT_DIR_NAME' to 'windows-search' for agent discovery..."
+        if mv "$INITIAL_SCRIPT_DIR" "$TARGET_DIR"; then
+            SCRIPT_DIR="$TARGET_DIR"
+            # Change to the new directory to ensure relative paths in the rest of the script work correctly
+            cd "$SCRIPT_DIR"
+        else
+            echo "[!] Error: Failed to rename directory to 'windows-search'."
+            echo "[!] Continuing installation in the current directory, but agent discovery might fail."
+            SCRIPT_DIR="$INITIAL_SCRIPT_DIR"
+        fi
+    fi
+else
+    SCRIPT_DIR="$INITIAL_SCRIPT_DIR"
+fi
+
 SETUP_SCRIPT="$SCRIPT_DIR/scripts/setup_skill.py"
 
 if [ ! -f "$SETUP_SCRIPT" ]; then

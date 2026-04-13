@@ -1,5 +1,5 @@
 ---
-name: bridge-search
+name: windows-search
 description: Set up and operate the WSL2-to-Windows search bridge for Everything (`es.exe`), AnyTXT via its HTTP Search Service only, and the `bridge_search` MCP package. Use when working across `/mnt/c` and `C:\` paths, when you need fast Windows filename search, full-text file-content search on Windows, or when enabling this repo’s MCP server (`scripts/server.py` wrapper or `python -m bridge_search`). Do not look for or rely on an AnyTXT CLI binary; in this workflow AnyTXT is HTTP-only.
 ---
 
@@ -19,19 +19,20 @@ Use this skill to set up and run the MCP bridge: implementation lives in **`brid
 ## Workflow
 
 1. Confirm WSL2 is the current environment.
-2. Verify Python 3.10+ and the `mcp` package are available (prefer **`./install.sh`** from the repo root on Debian/Ubuntu WSL—it installs missing `python3`/`pip`/`venv` via `apt` when needed, then runs **`setup_skill.py --venv`**; otherwise run **`python3 scripts/setup_skill.py --venv`**; add **`--dev`** as needed; **`--skip-checks`** if backends exclude Windows services). If **`sudo`** prompts for a password, the human must run **`./install.sh`** locally.
-3. Confirm Windows-side prerequisites match **`backends`** in **`config/bridge-search.config.json`** (defaults: Everything + AnyTXT):
+2. **Directory Naming (MANDATORY for Discovery):** If you have just cloned this repository and the folder is not named **`windows-search`**, you **must** rename it to **`windows-search`** before proceeding. Agent discovery of this skill is tied to the folder name.
+3. Verify Python 3.10+ and the `mcp` package are available (prefer **`./install.sh`** from the `windows-search` root on Debian/Ubuntu WSL—it installs missing `python3`/`pip`/`venv` via `apt` when needed, then runs **`setup_skill.py --venv`**; otherwise run **`python3 scripts/setup_skill.py --venv`**; add **`--dev`** as needed; **`--skip-checks`** if backends exclude Windows services). If **`sudo`** prompts for a password, the human must run **`./install.sh`** locally.
+4. Confirm Windows-side prerequisites match **`backends`** in **`config/bridge-search.config.json`** (defaults: Everything + AnyTXT):
    - Voidtools Everything is installed and running (if **`backends.everything`**). **`es.exe`** comes from the **Everything CLI** package on [Voidtools downloads](https://www.voidtools.com/downloads/)—it is a separate download from the main GUI installer; ensure it is on Windows `PATH` or under `C:\Program Files\Everything\`.
    - AnyTXT Searcher is installed and the **HTTP Search Service** is enabled on the configured URL (default **`http://127.0.0.1:9921/search`**) if **`backends.anytxt`**.
    - Optional: `curl http://127.0.0.1:9921/` or rely on **`setup_skill.py`** post-install probes.
-4. **Tool-Only Enforcement:**
+5. **Tool-Only Enforcement:**
    - **DO NOT** call `es.exe` or `grep` directly via `run_shell_command` if the MCP server can be started.
    - **DO NOT** search for an AnyTXT executable. It is handled exclusively via HTTP on port **9921**.
-5. Use this search order:
+6. Use this search order:
    - Everything (`locate_file_or_folder`, default **`target_env=windows`**) for filename/path search. Use **`everywhere`** only when you also need WSL-side `find` (scoped to **`$HOME`** by default; full `/` requires config or `BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR=1`).
    - AnyTXT (`locate_content_inside_files`) for content search.
    - Accept a "zero-hit" from Everything as **no match in Everything’s indexed scope** for that query (usually “not found” unless indexing lag, wrong filters, or path outside indexed locations—see Guardrails).
-6. Default search scope should be the current Windows user’s document-style folders, for example under the profile (e.g. `%USERPROFILE%\Documents`, `%USERPROFILE%\Desktop`, `%USERPROFILE%\Downloads`). Adjust to the user’s actual layout when known.
+7. Default search scope should be the current Windows user’s document-style folders, for example under the profile (e.g. `%USERPROFILE%\Documents`, `%USERPROFILE%\Desktop`, `%USERPROFILE%\Downloads`). Adjust to the user’s actual layout when known.
 
 ## Tool selection
 
@@ -68,7 +69,7 @@ Use this skill to set up and run the MCP bridge: implementation lives in **`brid
 - **Everything** = `locate_file_or_folder` (Fastest)
 - **AnyTXT** = `locate_content_inside_files` (Indexed Content)
 - **Diagnostic** = `get_health` (Check connectivity/services)
-- **AnyTXT Port** = **9921** (Bridge Search itself uses stdio, not a network port)
+- **AnyTXT Port** = **9921** (Windows Search itself uses stdio, not a network port)
 - **WSL2 Localhost** = Automatic host discovery (from `/etc/resolv.conf`) is enabled.
 - **No hit from Everything** = **No match in the indexer for that query** (treat as “not found” unless indexing/scope/query issues apply). Stop brute-forcing `/mnt/c`.
 
