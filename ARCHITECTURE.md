@@ -105,7 +105,8 @@ AnyTXT is accessed over HTTP.
 
 Bridge Search tries to avoid full unbounded result collection.
 
-- WSL backends short-circuit after enough rows for the requested page plus one extra row to determine `has_more`.
+- WSL filename search (`find`) short-circuits after enough rows for the requested page plus one extra row to determine `has_more`.
+- Content search backends (`grep`/AnyTXT) remain bounded by configured caps and offsets, but may collect beyond a single page before final slicing.
 - Everything uses native viewport paging when the installed CLI supports it.
 - `meta.total_found_is_lower_bound=true` means the current backend intentionally stopped early and the reported total is not exhaustive.
 
