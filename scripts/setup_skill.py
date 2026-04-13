@@ -30,7 +30,10 @@ def run_command(cmd: Sequence[str], description: str) -> bool:
         return True
     except subprocess.CalledProcessError as e:
         err = e.stderr or e.stdout or str(e)
-        print(f"[!] Error: {err}")
+        if "externally-managed" in err.lower():
+            print("[!] System Python is externally managed (PEP 668). Re-run with --venv.")
+        else:
+            print(f"[!] Error: {err}")
         return False
 
 
@@ -132,23 +135,33 @@ def _pip_install(
 
 def _health_checks(anytxt_url: str) -> bool:
     """Return True if all required probes pass."""
-    # We override the AnyTXT URL via env for the health check if the user provided one on CLI
-    if anytxt_url != DEFAULT_ANYTXT_URL:
-        os.environ["BRIDGE_SEARCH_ANYTXT_URL"] = anytxt_url
+    from bridge_search import config as bridge_config
 
-    results = check_health()
-    
-    for err in results["errors"]:
-        print(f"[!] {err['message']}")
-    
-    for warn in results["warnings"]:
-        print(f"[~] {warn['message']}")
-        
-    for name, stat in results["backends"].items():
-        if stat["enabled"] and stat.get("status") == "ok":
-            print(f"[+] {name} backend OK.")
+    old_url = os.environ.get("BRIDGE_SEARCH_ANYTXT_URL")
+    try:
+        if anytxt_url != DEFAULT_ANYTXT_URL:
+            os.environ["BRIDGE_SEARCH_ANYTXT_URL"] = anytxt_url
+        bridge_config.get_bridge_config(reload=True)
 
-    return results["overall_success"]
+        results = check_health()
+
+        for err in results["errors"]:
+            print(f"[!] {err['message']}")
+
+        for warn in results["warnings"]:
+            print(f"[~] {warn['message']}")
+
+        for name, stat in results["backends"].items():
+            if stat["enabled"] and stat.get("status") == "ok":
+                print(f"[+] {name} backend OK.")
+
+        return results["overall_success"]
+    finally:
+        if old_url is None:
+            os.environ.pop("BRIDGE_SEARCH_ANYTXT_URL", None)
+        else:
+            os.environ["BRIDGE_SEARCH_ANYTXT_URL"] = old_url
+        bridge_config.get_bridge_config(reload=True)
 
 
 def _mcporter_register(python_exe: str, server_path: str, mcporter_config: str) -> bool:

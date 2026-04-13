@@ -22,7 +22,7 @@ if command -v apt-get &> /dev/null; then
 
     if [ "${#MISSING_PKGS[@]}" -gt 0 ]; then
         echo "Missing required packages: ${MISSING_PKGS[*]}"
-        echo "Please enter your WSL password to install them."
+        echo "Please enter your Linux user password (for sudo)."
         if ! command -v sudo &> /dev/null; then
             echo "Error: sudo is required to install missing packages with apt-get."
             echo "Install these packages manually and re-run: ${MISSING_PKGS[*]}"
@@ -49,7 +49,11 @@ if ! python3 -c "import venv" &> /dev/null; then
 fi
 
 SETUP_ARGS=("$@")
-if [[ " ${SETUP_ARGS[*]} " != *" --venv "* ]]; then
+HAS_VENV=false
+for arg in "${SETUP_ARGS[@]}"; do
+    if [[ "$arg" == "--venv" ]]; then HAS_VENV=true; break; fi
+done
+if [[ "$HAS_VENV" == "false" ]]; then
     SETUP_ARGS=(--venv "${SETUP_ARGS[@]}")
 fi
 
