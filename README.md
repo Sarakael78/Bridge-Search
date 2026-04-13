@@ -7,7 +7,7 @@
 
 [![CI: Lint, Typecheck, Test](https://github.com/Sarakael78/Bridge-Search/actions/workflows/test.yml/badge.svg)](https://github.com/Sarakael78/Bridge-Search/actions/workflows/test.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/Sarakael78/Bridge-Search?color=blue)](https://github.com/Sarakael78/Bridge-Search/releases)
-[![Dependabot](https://img.shields.io/github/dependabot/Sarakael78/Bridge-Search)](https://github.com/Sarakael78/Bridge-Search/pulls?q=is%3Apr+is%3Aopen+label%3Adependabot)
+[![Dependabot](https://badgen.net/github/dependabot/Sarakael78/Bridge-Search)](https://github.com/Sarakael78/Bridge-Search/pulls?q=is%3Apr+is%3Aopen+label%3Adependabot)
 
 ## The Problem
 
