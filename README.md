@@ -1,5 +1,7 @@
 # Bridge Search 🌉
 
+![Bridge Search connects WSL2 to Windows-native search: instant file and full-text results via Everything and AnyTXT instead of slow scans on `/mnt/c`.](docs/assets/bridge-search-hero.png)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Ready-success.svg)](https://github.com/steipete/mcporter)
