@@ -658,7 +658,7 @@ def test_wsl_locate_stale_db_serves_results_when_refresh_fails(monkeypatch, tmp_
     )
 
     monkeypatch.setenv("BRIDGE_SEARCH_LOCATE_DB_PATH", str(db_path))
-    monkeypatch.setattr(search_backends.time, "time", lambda: 1000 + (24 * 60 * 60) + 100)
+    monkeypatch.setattr(search_backends, "_wsl_locate_db_is_stale", lambda db, search_root, max_age_seconds=86400.0: True)
     scheduled = {"value": False}
     monkeypatch.setattr(
         search_backends,
@@ -688,7 +688,7 @@ def test_system_locator_sets_refresh_scheduled_meta_when_wsl_locate_stale(monkey
     )
 
     monkeypatch.setenv("BRIDGE_SEARCH_LOCATE_DB_PATH", str(db_path))
-    monkeypatch.setattr(search_backends.time, "time", lambda: 1000 + (24 * 60 * 60) + 100)
+    monkeypatch.setattr(search_backends, "_wsl_locate_db_is_stale", lambda db, search_root, max_age_seconds=86400.0: True)
     monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "wsl_locate")
     monkeypatch.setattr(search_backends, "_wsl_filename_find_root", lambda: str(root))
     monkeypatch.setattr(search_backends, "_schedule_wsl_locate_refresh", lambda db, search_root: True)
@@ -710,7 +710,7 @@ def test_system_locator_sets_refresh_scheduled_meta_false_when_wsl_locate_fresh(
     )
 
     monkeypatch.setenv("BRIDGE_SEARCH_LOCATE_DB_PATH", str(db_path))
-    monkeypatch.setattr(search_backends.time, "time", lambda: 2000 + 100)
+    monkeypatch.setattr(search_backends, "_wsl_locate_db_is_stale", lambda db, search_root, max_age_seconds=86400.0: False)
     monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "wsl_locate")
     monkeypatch.setattr(search_backends, "_wsl_filename_find_root", lambda: str(root))
 
