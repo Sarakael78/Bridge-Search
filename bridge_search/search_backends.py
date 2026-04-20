@@ -330,7 +330,8 @@ def _wsl_locate_search(
     stale = _wsl_locate_db_is_stale(db_path, search_root)
     if stale:
         started = _schedule_wsl_locate_refresh(db_path, search_root)
-        refresh_scheduled = started
+        with _WSL_LOCATE_REFRESH_LOCK:
+            refresh_scheduled = db_path in _WSL_LOCATE_REFRESH_IN_FLIGHT
         if started:
             l_warnings.append(
                 make_issue(
