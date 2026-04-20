@@ -279,7 +279,7 @@ def _build_wsl_locate_db(db_path: str, search_root: str) -> None:
         handle.write(f"# generated_at={time.time()} root={search_root}\n")
         for current_root, dirs, files in os.walk(search_root, onerror=lambda _err: None):
             if root_is_fs:
-                dirs[:] = [d for d in dirs if d != "mnt"]
+                dirs[:] = [d for d in dirs if d not in ("mnt", "proc", "sys", "dev", "run")]
             if path_allowed_for_search_result(current_root):
                 handle.write(f"{current_root}\n")
             for name in files:
