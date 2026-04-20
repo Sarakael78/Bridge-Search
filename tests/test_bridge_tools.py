@@ -625,3 +625,108 @@ def test_escape_find_glob_escapes_brackets() -> None:
     assert search_backends._escape_find_glob("test[0]") == r"test\[0\]"
     assert search_backends._escape_find_glob(r"test\file") == r"test\\file"
     assert search_backends._escape_find_glob("normal") == "normal"
+
+
+def test_wsl_locate_database_refreshes_once_daily(monkeypatch, tmp_path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    note = root / "note.txt"
+    note.write_text("hello", encoding="utf-8")
+    db_path = tmp_path / "wsl-locate.db"
+    now = {"value": 1_700_000_000.0}
+
+    monkeypatch.setattr(search_backends.time, "time", lambda: now["value"])
+    search_backends._build_wsl_locate_db(str(db_path), str(root))
+    assert search_backends._wsl_locate_db_is_stale(str(db_path), str(root)) is False
+
+    now["value"] += 60 * 60
+    assert search_backends._wsl_locate_db_is_stale(str(db_path), str(root)) is False
+
+    now["value"] += (24 * 60 * 60) + 1
+    assert search_backends._wsl_locate_db_is_stale(str(db_path), str(root)) is True
+
+
+def test_wsl_locate_stale_db_serves_results_when_refresh_fails(monkeypatch, tmp_path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    note = root / "note.txt"
+    note.write_text("hello", encoding="utf-8")
+    db_path = tmp_path / "wsl-locate.db"
+    db_path.write_text(
+        f"# generated_at=1000 root={root}\n{note}\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("BRIDGE_SEARCH_LOCATE_DB_PATH", str(db_path))
+    monkeypatch.setattr(search_backends, "_wsl_locate_db_is_stale", lambda db, search_root, max_age_seconds=86400.0: True)
+    scheduled = {"value": False}
+
+    def mock_schedule(db, root):
+        scheduled["value"] = True
+        with search_backends._WSL_LOCATE_REFRESH_LOCK:
+            search_backends._WSL_LOCATE_REFRESH_IN_FLIGHT.add(db)
+        return True
+
+    monkeypatch.setattr(
+        search_backends,
+        "_schedule_wsl_locate_refresh",
+        mock_schedule,
+    )
+
+    results, errors, warnings, truncated, refresh_scheduled = search_backends._wsl_locate_search("note", str(root), False, 10)
+    assert truncated is False
+    assert errors == []
+    assert refresh_scheduled is True
+    assert scheduled["value"] is True
+    assert len(results) == 1
+    assert results[0]["path"] == str(note)
+    assert any(w["code"] == "backend_unavailable" for w in warnings)
+
+
+def test_system_locator_sets_refresh_scheduled_meta_when_wsl_locate_stale(monkeypatch, tmp_path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    note = root / "note.txt"
+    note.write_text("hello", encoding="utf-8")
+    db_path = tmp_path / "wsl-locate.db"
+    db_path.write_text(
+        f"# generated_at=1000 root={root}\n{note}\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("BRIDGE_SEARCH_LOCATE_DB_PATH", str(db_path))
+    monkeypatch.setattr(search_backends, "_wsl_locate_db_is_stale", lambda db, search_root, max_age_seconds=86400.0: True)
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "wsl_locate")
+    monkeypatch.setattr(search_backends, "_wsl_filename_find_root", lambda: str(root))
+
+    def mock_schedule(db, root):
+        with search_backends._WSL_LOCATE_REFRESH_LOCK:
+            search_backends._WSL_LOCATE_REFRESH_IN_FLIGHT.add(db)
+        return True
+
+    monkeypatch.setattr(search_backends, "_schedule_wsl_locate_refresh", mock_schedule)
+
+    response = bridge_tools.system_locator("note", target_env="wsl")
+    assert response["success"] is True
+    assert response["meta"]["wsl_locate_refresh_scheduled"] is True
+
+
+def test_system_locator_sets_refresh_scheduled_meta_false_when_wsl_locate_fresh(monkeypatch, tmp_path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    note = root / "note.txt"
+    note.write_text("hello", encoding="utf-8")
+    db_path = tmp_path / "wsl-locate.db"
+    db_path.write_text(
+        f"# generated_at=2000 root={root}\n{note}\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("BRIDGE_SEARCH_LOCATE_DB_PATH", str(db_path))
+    monkeypatch.setattr(search_backends, "_wsl_locate_db_is_stale", lambda db, search_root, max_age_seconds=86400.0: False)
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "wsl_locate")
+    monkeypatch.setattr(search_backends, "_wsl_filename_find_root", lambda: str(root))
+
+    response = bridge_tools.system_locator("note", target_env="wsl")
+    assert response["success"] is True
+    assert response["meta"]["wsl_locate_refresh_scheduled"] is False

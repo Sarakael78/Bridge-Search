@@ -31,12 +31,13 @@ _DEFAULTS: Dict[str, Any] = {
         "max_read_bytes": 1048576,
         "max_delete_entries": 1000,
     },
-    "backends": {"everything": True, "anytxt": True, "wsl_find": True, "wsl_grep": True},
+    "backends": {"everything": True, "anytxt": True, "wsl_locate": True, "wsl_find": True, "wsl_grep": True},
 }
 
 _BACKEND_ENV = {
     "everything": "BRIDGE_SEARCH_ENABLE_EVERYTHING",
     "anytxt": "BRIDGE_SEARCH_ENABLE_ANYTXT",
+    "wsl_locate": "BRIDGE_SEARCH_ENABLE_WSL_LOCATE",
     "wsl_find": "BRIDGE_SEARCH_ENABLE_WSL_FIND",
     "wsl_grep": "BRIDGE_SEARCH_ENABLE_WSL_GREP",
 }

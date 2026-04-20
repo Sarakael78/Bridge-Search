@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - README hero image (`docs/assets/bridge-search-hero.png`) illustrating WSL2 ↔ Windows search via Everything and AnyTXT.
+- WSL `locate` filename backend with a Bridge Search-managed database (`~/.cache/bridge-search/wsl-locate.db`) that auto-refreshes once every 24 hours.
+- Non-blocking stale-DB behavior for WSL locate: searches serve cached rows immediately and schedule refresh in the background.
 
 ## [0.2.1] - 2026-04-13
 

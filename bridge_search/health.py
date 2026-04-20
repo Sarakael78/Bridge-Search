@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Tuple
 
 from . import config
 from .constants import ErrorCodes
-from .search_backends import get_effective_anytxt_urls, resolve_es_exe
+from .search_backends import get_effective_anytxt_urls, resolve_es_exe, _wsl_locate_db_is_stale, _wsl_locate_db_path, _wsl_filename_find_root
 
 
 def run_command_capture(cmd: List[str], timeout: float = 30) -> Tuple[int, str, str]:
@@ -28,6 +28,7 @@ def check_health() -> Dict[str, Any]:
     """Perform a comprehensive health check of all configured backends."""
     be = config.backend_enabled("everything")
     ba = config.backend_enabled("anytxt")
+    bl = config.backend_enabled("wsl_locate")
     bf = config.backend_enabled("wsl_find")
     bg = config.backend_enabled("wsl_grep")
 
@@ -36,6 +37,7 @@ def check_health() -> Dict[str, Any]:
         "backends": {
             "everything": {"enabled": be},
             "anytxt": {"enabled": ba},
+            "wsl_locate": {"enabled": bl},
             "wsl_find": {"enabled": bf},
             "wsl_grep": {"enabled": bg},
         },
@@ -43,7 +45,7 @@ def check_health() -> Dict[str, Any]:
         "warnings": [],
     }
 
-    if not any([be, ba, bf, bg]):
+    if not any([be, ba, bl, bf, bg]):
         results["overall_success"] = False
         results["errors"].append({
             "code": ErrorCodes.NO_BACKENDS_ENABLED,
@@ -105,6 +107,20 @@ def check_health() -> Dict[str, Any]:
             results["backends"]["anytxt"]["status"] = "ok"
 
     # WSL backends are usually 'ok' if the server is running, but we can verify presence
+    if bl:
+        locate_db = _wsl_locate_db_path()
+        locate_root = _wsl_filename_find_root()
+        results["backends"]["wsl_locate"]["database_path"] = locate_db
+        results["backends"]["wsl_locate"]["index_root"] = locate_root
+        if _wsl_locate_db_is_stale(locate_db, locate_root):
+            results["backends"]["wsl_locate"]["status"] = "stale"
+            results["warnings"].append({
+                "code": ErrorCodes.BACKEND_UNAVAILABLE,
+                "message": "WSL locate database is missing or stale; it will be rebuilt on next locate query."
+            })
+        else:
+            results["backends"]["wsl_locate"]["status"] = "ok"
+
     if bf:
         if subprocess.run(["which", "find"], capture_output=True, timeout=10).returncode == 0:
             results["backends"]["wsl_find"]["status"] = "ok"
