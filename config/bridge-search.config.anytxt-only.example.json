@@ -1,6 +1,6 @@
 {
   "_security_warning": "Copy to config/bridge-search.config.json or set BRIDGE_SEARCH_CONFIG. Keys starting with _ are ignored.",
-  "_profile": "Windows full-text search via AnyTXT HTTP only. No Everything (es.exe), no WSL find/grep. Filename lookup on Windows is unavailable—use locate_content_inside_files with target_env \"windows\" for indexed content; use WSL paths + enable backends if you need find/grep.",
+  "_profile": "Windows full-text search via AnyTXT HTTP only. No Everything (es.exe), no WSL locate/find/grep. Filename lookup on Windows is unavailable—use locate_content_inside_files with target_env \"windows\" for indexed content; use WSL paths + enable backends if you need filename/content search on Linux paths.",
   "_write_note": "manage_file(write) replaces by default. Append requires write_mode='append' on the tool call; there is no config-level append default.",
   "version": 1,
   "service": {
@@ -27,6 +27,7 @@
   "backends": {
     "everything": false,
     "anytxt": true,
+    "wsl_locate": false,
     "wsl_find": false,
     "wsl_grep": false
   }

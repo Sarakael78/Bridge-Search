@@ -109,10 +109,10 @@ sequenceDiagram
 
 **Bridge Search** equips your AI with the following capabilities:
 
-- **`locate_file_or_folder`:** Instantly finds files by name. Uses `es.exe` on Windows (`target_env=windows`). Use `everywhere` to combine with WSL `find` under `$HOME`.
+- **`locate_file_or_folder`:** Instantly finds files by name. Uses `es.exe` on Windows (`target_env=windows`). Use `everywhere` to combine with WSL `locate` (daily-refreshed DB, non-blocking refresh) and optional WSL `find` under `$HOME`.
 - **`locate_content_inside_files`**: Instantly searches inside documents (PDFs, Word, text). Uses AnyTXT's HTTP API on Windows and `grep` when targeting WSL paths. Includes automatic host-IP discovery for WSL2.
 - **`map_directory`**: Generates hierarchical, paginated directory maps to understand project structures.
-- **`get_health`**: Diagnoses the status of all search backends (Everything, AnyTXT, WSL find/grep) and connectivity.
+- **`get_health`**: Diagnoses the status of all search backends (Everything, AnyTXT, WSL locate/find/grep) and connectivity.
 - **`manage_file`**: Safely read, write, move, or delete files across the OS boundary with automatic path translation and policy checks.
 
 
@@ -233,7 +233,8 @@ Important:
 - `get_health()` – No parameters; reports whether Everything, AnyTXT, and the WSL helpers can be reached.
 - `locate_file_or_folder(query, target_env="windows", exact_match=False, limit=100, offset=0)` – Filename search.
   - `query` must be non-empty; blank or whitespace-only input returns `query_required`.
-  - `target_env` = `windows`, `wsl`, or `everywhere`. Windows results call Everything, WSL results use `find`.
+  - `target_env` = `windows`, `wsl`, or `everywhere`. Windows results call Everything, WSL results use `locate` (daily-refreshed DB with background refresh) and optional `find`.
+  - `meta.wsl_locate_refresh_scheduled` is always present when WSL locate is enabled: `false` by default, `true` when stale data triggers a background refresh.
   - Everything native paging (`-viewport-offset`, `-viewport-count`) is used only for `target_env="windows"` so merged `everywhere` paging stays consistent.
   - `limit`/`offset` obey `limits.max_limit` (default 500) and `limits.max_offset` (default 50 000). Paginated responses may set `meta.total_found_is_lower_bound` when paging is capped.
   - Results include both a normalized WSL `path` and the original `raw_path` for Windows hits.
@@ -284,16 +285,18 @@ We provide templates in the `config/` directory for common setups:
   - `command_timeout_seconds` is the default timeout for `es.exe`, `grep`, `wslpath`, and HTTP calls.
   - `max_read_bytes` is the soft limit for `manage_file(read)` before a truncation warning (default 1 048 576 bytes).
   - `max_delete_entries` is the top-level entry count above which `manage_file(delete)` emits a warning about large directory removal (default 1000).
-- `backends.everything`, `.anytxt`, `.wsl_find`, and `.wsl_grep` enable or disable each search backend.
+- `backends.everything`, `.anytxt`, `.wsl_locate`, `.wsl_find`, and `.wsl_grep` enable or disable each search backend.
+- WSL locate database path defaults to `~/.cache/bridge-search/wsl-locate.db` and refreshes at most once every 24 hours via a non-blocking background job; stale cache rows can still be returned immediately while refresh runs.
 
 #### Environment overrides
 - `BRIDGE_SEARCH_CONFIG` — absolute path to a different config file.
 - `BRIDGE_SEARCH_ANYTXT_URL` — override the AnyTXT HTTP endpoint (normalized to `/search`).
 - `BRIDGE_SEARCH_CMD_TIMEOUT_SECONDS` — overrides `limits.command_timeout_seconds`.
 - `BRIDGE_SEARCH_ALLOWED_PREFIXES` — allowlist applied to both searches and file ops. The parser accepts `:` or `;`; prefer `;` when any Windows-style `C:\...` prefix is present.
-- `BRIDGE_SEARCH_ENABLE_EVERYTHING`, `BRIDGE_SEARCH_ENABLE_ANYTXT`, `BRIDGE_SEARCH_ENABLE_WSL_FIND`, `BRIDGE_SEARCH_ENABLE_WSL_GREP` — toggle each backend on/off.
+- `BRIDGE_SEARCH_ENABLE_EVERYTHING`, `BRIDGE_SEARCH_ENABLE_ANYTXT`, `BRIDGE_SEARCH_ENABLE_WSL_LOCATE`, `BRIDGE_SEARCH_ENABLE_WSL_FIND`, `BRIDGE_SEARCH_ENABLE_WSL_GREP` — toggle each backend on/off.
+- `BRIDGE_SEARCH_LOCATE_DB_PATH` — optional override for the WSL locate database file path.
 - `BRIDGE_SEARCH_ALLOW_ROOT_GREP=1` or config `allow_grep_from_filesystem_root` lets WSL `grep` run from `/`.
-- `BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR=1` or `allow_wsl_locator_from_filesystem_root` lets `locate_file_or_folder` `find` from `/`.
+- `BRIDGE_SEARCH_ALLOW_ROOT_LOCATOR=1` or `allow_wsl_locator_from_filesystem_root` lets WSL locate/find index and search from `/`.
 
 Example configs now also expose:
 

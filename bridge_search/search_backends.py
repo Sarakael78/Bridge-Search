@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -19,6 +20,8 @@ from .result_models import error_response, make_issue, success_response
 _GREP_LINE_RE = re.compile(r"^(.+?):(\d+):(.*)$", re.DOTALL)
 _EVERYTHING_HELP_CACHE: Optional[str] = None
 _CACHE_LOCK = threading.Lock()
+_WSL_LOCATE_REFRESH_LOCK = threading.Lock()
+_WSL_LOCATE_REFRESH_IN_FLIGHT: set[str] = set()
 
 
 def get_effective_anytxt_urls() -> List[str]:
@@ -226,6 +229,159 @@ def _wsl_filename_find_root() -> str:
     return "/" if _wsl_locator_full_root_allowed() else os.path.expanduser("~")
 
 
+def _wsl_locate_db_path() -> str:
+    override = os.environ.get("BRIDGE_SEARCH_LOCATE_DB_PATH", "").strip()
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
+    return os.path.join(os.path.expanduser("~"), ".cache", "bridge-search", "wsl-locate.db")
+
+
+def _parse_locate_db_header(header_line: str) -> Tuple[float, str]:
+    ts = 0.0
+    root = ""
+    tokens = header_line.strip().split()
+    for token in tokens:
+        if token.startswith("generated_at="):
+            try:
+                ts = float(token.split("=", 1)[1])
+            except ValueError:
+                ts = 0.0
+        elif token.startswith("root="):
+            root = token.split("=", 1)[1]
+    return ts, root
+
+
+def _wsl_locate_db_is_stale(db_path: str, search_root: str, max_age_seconds: float = 86400.0) -> bool:
+    if not os.path.isfile(db_path):
+        return True
+    try:
+        with open(db_path, "r", encoding="utf-8") as handle:
+            header = handle.readline()
+    except OSError:
+        return True
+    if not header.startswith("# "):
+        return True
+    generated_at, indexed_root = _parse_locate_db_header(header[2:])
+    if generated_at <= 0:
+        return True
+    if canonical_path(indexed_root or "") != canonical_path(search_root):
+        return True
+    return (time.time() - generated_at) >= max_age_seconds
+
+
+def _build_wsl_locate_db(db_path: str, search_root: str) -> None:
+    db_dir = os.path.dirname(db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+    tmp_path = f"{db_path}.tmp"
+    root_is_fs = canonical_path(search_root) == "/"
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        handle.write(f"# generated_at={time.time()} root={search_root}\n")
+        for current_root, dirs, files in os.walk(search_root, onerror=lambda _err: None):
+            if root_is_fs:
+                dirs[:] = [d for d in dirs if d != "mnt"]
+            if path_allowed_for_search_result(current_root):
+                handle.write(f"{current_root}\n")
+            for name in files:
+                full_path = os.path.join(current_root, name)
+                if path_allowed_for_search_result(full_path):
+                    handle.write(f"{full_path}\n")
+    os.replace(tmp_path, db_path)
+
+
+def _schedule_wsl_locate_refresh(db_path: str, search_root: str) -> bool:
+    """Schedule a non-blocking locate DB refresh; returns True when a new job starts."""
+    with _WSL_LOCATE_REFRESH_LOCK:
+        if db_path in _WSL_LOCATE_REFRESH_IN_FLIGHT:
+            return False
+        _WSL_LOCATE_REFRESH_IN_FLIGHT.add(db_path)
+
+    def _worker() -> None:
+        try:
+            _build_wsl_locate_db(db_path, search_root)
+        except OSError:
+            # Best-effort async refresh; query path should continue with stale data.
+            pass
+        finally:
+            with _WSL_LOCATE_REFRESH_LOCK:
+                _WSL_LOCATE_REFRESH_IN_FLIGHT.discard(db_path)
+
+    t = threading.Thread(
+        target=_worker,
+        name="bridge-search-wsl-locate-refresh",
+        daemon=True,
+    )
+    t.start()
+    return True
+
+
+def _wsl_locate_search(
+    query: str,
+    search_root: str,
+    exact_match: bool,
+    page_cap: int,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], bool, bool]:
+    l_results: List[Dict[str, Any]] = []
+    l_errors: List[Dict[str, Any]] = []
+    l_warnings: List[Dict[str, Any]] = []
+    truncated = False
+    refresh_scheduled = False
+    db_path = _wsl_locate_db_path()
+    stale = _wsl_locate_db_is_stale(db_path, search_root)
+    if stale:
+        started = _schedule_wsl_locate_refresh(db_path, search_root)
+        refresh_scheduled = started
+        if started:
+            l_warnings.append(
+                make_issue(
+                    code=ErrorCodes.BACKEND_UNAVAILABLE,
+                    message="WSL locate database is stale or missing; background refresh scheduled. Serving cached results when available.",
+                    source="wsl-locate",
+                )
+            )
+
+    needle = query.lower()
+    if not os.path.isfile(db_path):
+        return l_results, l_errors, l_warnings, truncated, refresh_scheduled
+
+    try:
+        with open(db_path, "r", encoding="utf-8") as handle:
+            # Skip metadata header line.
+            handle.readline()
+            for raw in handle:
+                if len(l_results) >= page_cap:
+                    truncated = True
+                    break
+                path = raw.strip()
+                if not path or not path_allowed_for_search_result(path):
+                    continue
+                name = os.path.basename(path)
+                matched = name.lower() == needle if exact_match else needle in path.lower()
+                if not matched:
+                    continue
+                l_results.append(
+                    {
+                        "type": "search_hit",
+                        "path": path,
+                        "raw_path": path,
+                        "source": "wsl-locate",
+                    }
+                )
+    except OSError as exc:
+        issue = make_issue(
+            code=ErrorCodes.BACKEND_UNAVAILABLE if stale else ErrorCodes.BACKEND_ERROR,
+            message=f"WSL locate database read failed: {exc}",
+            source="wsl-locate",
+        )
+        if stale:
+            l_warnings.append(issue)
+        else:
+            l_errors.append(issue)
+            return l_results, l_errors, l_warnings, truncated, refresh_scheduled
+
+    return l_results, l_errors, l_warnings, truncated, refresh_scheduled
+
+
 def _wsl_grep_root_allowed(wsl_search_path: str) -> Tuple[bool, str]:
     canon = canonical_path(resolve_path(wsl_search_path, "wsl"))
     cfg_allow = bool(get_bridge_config().get("security", {}).get("allow_grep_from_filesystem_root", False))
@@ -250,12 +406,23 @@ def system_locator(query: str, target_env: str = "windows", exact_match: bool = 
     wants_win = target_env in ("windows", "everywhere")
     wants_wsl = target_env in ("wsl", "everywhere")
     run_everything = wants_win and backend_enabled("everything")
+    run_wsl_locate = wants_wsl and backend_enabled("wsl_locate")
     run_wsl_find = wants_wsl and backend_enabled("wsl_find")
-    meta: Dict[str, Any] = {"filename_backends": {"everything": run_everything, "wsl_find": run_wsl_find}, "offset": offset, "limit": limit}
+    meta: Dict[str, Any] = {
+        "filename_backends": {
+            "everything": run_everything,
+            "wsl_locate": run_wsl_locate,
+            "wsl_find": run_wsl_find,
+        },
+        "offset": offset,
+        "limit": limit,
+    }
+    if run_wsl_locate:
+        meta["wsl_locate_refresh_scheduled"] = False
     query = _normalized_query(query)
     if not query:
         return _query_required_response(source="locator", meta=meta)
-    if not run_everything and not run_wsl_find:
+    if not run_everything and not run_wsl_locate and not run_wsl_find:
         return error_response(code=ErrorCodes.BACKEND_DISABLED, message="No filename search backend enabled for this target_env.", source="locator", meta=meta)
     results: List[Dict[str, Any]] = []
     errors: List[Dict[str, Any]] = []
@@ -342,8 +509,12 @@ def system_locator(query: str, target_env: str = "windows", exact_match: bool = 
             f_errors.append(make_issue(code=ErrorCodes.BACKEND_ERROR, message=str(exc), source="wsl-find"))
         return f_results, f_errors, f_warnings, f_truncated
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         e_future = executor.submit(everything_worker) if run_everything else None
+        l_future = None
+        if run_wsl_locate:
+            search_root = _wsl_filename_find_root()
+            l_future = executor.submit(_wsl_locate_search, query, search_root, exact_match, page_cap)
         f_future = executor.submit(wsl_find_worker) if run_wsl_find else None
 
         if e_future:
@@ -354,6 +525,17 @@ def system_locator(query: str, target_env: str = "windows", exact_match: bool = 
             for r in e_results:
                 append_result(r)
             if e_truncated:
+                truncated = True
+
+        if l_future and not truncated and len(results) < page_cap:
+            l_results, l_errors, l_warnings, l_truncated, l_refresh_scheduled = l_future.result()
+            errors.extend(l_errors)
+            warnings.extend(l_warnings)
+            if l_refresh_scheduled:
+                meta["wsl_locate_refresh_scheduled"] = True
+            for r in l_results:
+                append_result(r)
+            if l_truncated:
                 truncated = True
 
         if f_future and not truncated and len(results) < page_cap:
