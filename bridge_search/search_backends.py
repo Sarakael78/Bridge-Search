@@ -357,7 +357,7 @@ def _wsl_locate_search(
                 if not path or not path_allowed_for_search_result(path):
                     continue
                 name = os.path.basename(path)
-                matched = name.lower() == needle if exact_match else needle in path.lower()
+                matched = name.lower() == needle if exact_match else needle in name.lower()
                 if not matched:
                     continue
                 l_results.append(
