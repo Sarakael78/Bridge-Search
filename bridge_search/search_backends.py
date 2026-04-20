@@ -350,24 +350,23 @@ def _wsl_locate_search(
             # Skip metadata header line.
             handle.readline()
             for raw in handle:
-                if len(l_results) >= page_cap:
-                    truncated = True
-                    break
                 path = raw.strip()
-                if not path or not path_allowed_for_search_result(path):
+                if not path:
                     continue
                 name = os.path.basename(path)
                 matched = name.lower() == needle if exact_match else needle in name.lower()
-                if not matched:
-                    continue
-                l_results.append(
-                    {
-                        "type": "search_hit",
-                        "path": path,
-                        "raw_path": path,
-                        "source": "wsl-locate",
-                    }
-                )
+                if matched and path_allowed_for_search_result(path):
+                    if len(l_results) >= page_cap:
+                        truncated = True
+                        break
+                    l_results.append(
+                        {
+                            "type": "search_hit",
+                            "path": path,
+                            "raw_path": path,
+                            "source": "wsl-locate",
+                        }
+                    )
     except OSError as exc:
         issue = make_issue(
             code=ErrorCodes.BACKEND_UNAVAILABLE if stale else ErrorCodes.BACKEND_ERROR,
