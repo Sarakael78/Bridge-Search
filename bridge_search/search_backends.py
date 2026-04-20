@@ -239,15 +239,15 @@ def _wsl_locate_db_path() -> str:
 def _parse_locate_db_header(header_line: str) -> Tuple[float, str]:
     ts = 0.0
     root = ""
-    tokens = header_line.strip().split()
-    for token in tokens:
-        if token.startswith("generated_at="):
-            try:
-                ts = float(token.split("=", 1)[1])
-            except ValueError:
-                ts = 0.0
-        elif token.startswith("root="):
-            root = token.split("=", 1)[1]
+    # Use partition to handle spaces in root path correctly
+    if "generated_at=" in header_line:
+        ts_part = header_line.partition("generated_at=")[2].split(None, 1)[0]
+        try:
+            ts = float(ts_part)
+        except ValueError:
+            ts = 0.0
+    if "root=" in header_line:
+        root = header_line.partition("root=")[2].strip()
     return ts, root
 
 
