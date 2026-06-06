@@ -186,7 +186,7 @@ def _extract_anytxt_wt_token(page_html: str) -> Optional[str]:
 
 
 def _extract_anytxt_wt_sid(page_html: str) -> Optional[str]:
-    m = re.search(r"var\s+w='\?wtd=[^']+'\+\"&sid=\"\+(\d+)", page_html)
+    m = re.search(r"var\s+w\s*=\s*['\"]\?wtd=[^'\"]+['\"]\s*\+\s*[\"']&sid=[\"']\s*\+\s*(\d+)", page_html)
     return m.group(1) if m else None
 
 
