@@ -760,6 +760,59 @@ def test_anytxt_wt_live_bootstrap_controls_are_parseable() -> None:
     assert drive_options == [("", "All Files")]
 
 
+def test_anytxt_wt_default_drive_option_suppresses_redundant_specific_options() -> None:
+    drive_options = [("", "All Files"), ("C:", "C:"), ("D:", "D:")]
+    assert search_backends._effective_anytxt_wt_drive_options(drive_options) == [("", "All Files")]
+
+
+def test_anytxt_wt_driver_queries_default_drive_option_once(monkeypatch) -> None:
+    monkeypatch.setattr(search_backends, "_load_anytxt_json_response", lambda *args, **kwargs: (_ for _ in ()).throw(search_backends.AnyTxtEndpointError("html")))
+    monkeypatch.setattr(search_backends, "_extract_anytxt_wt_controls", lambda _html: ("q", "drive", "search", [("", "All Files"), ("C:", "C:")]))
+    monkeypatch.setattr(search_backends, "_extract_anytxt_wt_search_button_id", lambda _html: None)
+    monkeypatch.setattr(search_backends, "_extract_anytxt_wt_ack", lambda _html: "1")
+    monkeypatch.setattr(search_backends, "_extract_anytxt_wt_page_id", lambda _html: "1")
+    monkeypatch.setattr(
+        search_backends,
+        "_extract_anytxt_wt_results",
+        lambda _html: [{"type": "content_hit", "path": "C:/note.txt", "snippet": "needle"}],
+    )
+
+    requests = []
+
+    class FakeResponse:
+        status = 200
+        headers = {"content-type": "text/html; charset=UTF-8"}
+
+        def __init__(self, body: bytes):
+            self._body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, _max_bytes):
+            return self._body
+
+    def fake_urlopen(req, timeout=5):
+        requests.append(req)
+        if len(requests) == 1:
+            return FakeResponse(b'<html><a href="?wtd=abc">session</a></html>')
+        if len(requests) == 2:
+            return FakeResponse(b"bootstrap")
+        return FakeResponse(b"results")
+
+    monkeypatch.setattr(search_backends.urllib.request, "urlopen", fake_urlopen)
+
+    hits = search_backends._query_anytxt_hits("http://127.0.0.1:9921", "needle", limit=10, offset=0, max_bytes=100_000)
+
+    assert len(hits) == 1
+    search_posts = [req for req in requests if getattr(req, "data", None) and b"request=jsupdate" in req.data]
+    assert len(search_posts) == 1
+    assert b"drive=&" in search_posts[0].data
+
+
 def test_anytxt_wt_no_files_response_is_clean_zero_hits() -> None:
     fixture = Path(__file__).parent / "fixtures" / "anytxt_wt" / "live_vat201_no_files_response.js"
     assert search_backends._extract_anytxt_wt_results(fixture.read_text(encoding="utf-8")) == []
