@@ -125,12 +125,15 @@ def _anytxt_http_search_enabled() -> Optional[bool]:
             continue
         try:
             import sqlite3
+            from contextlib import closing
 
-            conn = sqlite3.connect(path)
-            cur = conn.cursor()
-            cur.execute("SELECT value FROM Setting WHERE key='HttpSearch' LIMIT 1")
-            row = cur.fetchone()
-            conn.close()
+            with closing(sqlite3.connect(path)) as conn:
+                with closing(conn.cursor()) as cur:
+                    cur.execute("SELECT value FROM Setting WHERE key='HttpSearch' LIMIT 1")
+                    row = cur.fetchone()
+                    if row is None:
+                        return None
+                    return str(row[0]).strip() not in {"0", "false", "False", "no", "off"}
             if row is None:
                 return None
             return str(row[0]).strip() not in {"0", "false", "False", "no", "off"}
