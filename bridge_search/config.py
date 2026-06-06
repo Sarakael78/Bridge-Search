@@ -235,13 +235,31 @@ def anytxt_search_url() -> str:
     return normalize_anytxt_url(raw)
 
 
-def persist_anytxt_url(url: str, *, source: str = "", probe_query: str = "") -> str:
+def should_persist_anytxt_url(url: str) -> bool:
+    """Return True when a verified AnyTXT URL differs from current runtime state."""
+    normalized = normalize_anytxt_url(url)
+    svc = get_bridge_config().get("service", _DEFAULTS["service"])
+    current = anytxt_search_url()
+    if normalized != current:
+        return True
+    known_good = str(svc.get("last_known_good_anytxt_url", "")).strip()
+    if known_good and normalize_anytxt_url(known_good) != normalized:
+        return True
+    return False
+
+
+def persist_anytxt_url(url: str, *, source: str = "", probe_query: str = "", force: bool = False) -> str:
     """Persist a working AnyTXT URL back into the runtime config file.
 
     The current live endpoint is written to `service.anytxt_url`. The same value
     is also mirrored into `service.last_known_good_anytxt_url` and a `_meta`
     audit block so the last verified URL remains easy to inspect even if later
     sessions override the live endpoint via environment variables.
+
+    Routine health/search success paths call this only when the verified URL has
+    changed. The idempotence guard below is a second line of defence for direct
+    callers, avoiding unnecessary disk I/O, config-cache reloads, and warnings on
+    read-only installs when the on-disk runtime config is already stable.
     """
     normalized = normalize_anytxt_url(url)
     config_path = config_paths()[0]
@@ -252,15 +270,28 @@ def persist_anytxt_url(url: str, *, source: str = "", probe_query: str = "") -> 
             payload = raw if isinstance(raw, dict) else {}
         else:
             payload = {}
-        payload.setdefault("service", {})
-        service = payload["service"]
+        service = payload.setdefault("service", {})
+        env_override = bool(os.environ.get("BRIDGE_SEARCH_ANYTXT_URL", "").strip())
+        current_url = str(service.get("anytxt_url", "")).strip()
+        current_known_good = str(service.get("last_known_good_anytxt_url", "")).strip()
+        current_runtime = payload.get("_meta", {}).get("anytxt_runtime", {}) if isinstance(payload.get("_meta"), dict) else {}
+        current_runtime_url = str(current_runtime.get("last_known_good_url", "")).strip() if isinstance(current_runtime, dict) else ""
+        already_stable = (
+            current_known_good
+            and normalize_anytxt_url(current_known_good) == normalized
+            and (env_override or (current_url and normalize_anytxt_url(current_url) == normalized))
+            and (not current_runtime_url or normalize_anytxt_url(current_runtime_url) == normalized)
+        )
+        if already_stable and not force:
+            return normalized
+
         service["last_known_good_anytxt_url"] = normalized
         service["last_known_good_anytxt_url_updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         if source:
             service["last_known_good_anytxt_url_source"] = source
         if probe_query:
             service["last_known_good_anytxt_probe_query"] = probe_query
-        if not os.environ.get("BRIDGE_SEARCH_ANYTXT_URL", "").strip():
+        if not env_override:
             service["anytxt_url"] = normalized
         meta = payload.setdefault("_meta", {})
         runtime = meta.setdefault("anytxt_runtime", {})

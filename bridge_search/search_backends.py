@@ -10,9 +10,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
-from .config import anytxt_search_url, backend_enabled, clamp_int, command_timeout_seconds, get_bridge_config, get_wsl_host_ip, lim, persist_anytxt_url
+from .config import anytxt_search_url, backend_enabled, clamp_int, command_timeout_seconds, get_bridge_config, get_wsl_host_ip, lim, persist_anytxt_url, should_persist_anytxt_url
 from .constants import ErrorCodes
 from .path_policy import allowlist_filters_search_results, canonical_path, is_path_allowed, looks_like_windows_abs_path, path_allowed_for_search_result, resolve_path
 from .result_models import error_response, make_issue, success_response
@@ -60,9 +60,11 @@ def get_effective_anytxt_urls() -> List[str]:
     return urls
 
 
-def _record_anytxt_runtime_url(url: str, *, source: str, probe_query: str) -> str:
-    """Persist the last verified AnyTXT endpoint for future discovery."""
-    return persist_anytxt_url(url, source=source, probe_query=probe_query)
+def _record_anytxt_runtime_url(url: str, *, source: str, probe_query: str, force: bool = False) -> str:
+    """Persist the last verified AnyTXT endpoint only when it changed."""
+    if force or should_persist_anytxt_url(url):
+        return persist_anytxt_url(url, source=source, probe_query=probe_query, force=force)
+    return anytxt_search_url()
 
 
 def _anytxt_uses_legacy_search(url: str) -> bool:
@@ -336,7 +338,7 @@ def _load_anytxt_json_response(req: urllib.request.Request, *, timeout: float, m
         data = json.loads(raw.decode("utf-8"))
     except json.JSONDecodeError as exc:
         raise AnyTxtEndpointError(f"Invalid JSON ({exc})", code=ErrorCodes.INVALID_RESPONSE) from exc
-    return data
+    return cast(Dict[str, Any], data)
 
 
 def _query_anytxt_hits(url: str, query: str, *, limit: int, offset: int, max_bytes: int) -> List[Dict[str, Any]]:
@@ -346,12 +348,12 @@ def _query_anytxt_hits(url: str, query: str, *, limit: int, offset: int, max_byt
         data = _load_anytxt_json_response(req, timeout=_subprocess_timeout(), max_bytes=max_bytes)
         if not _has_anytxt_result_container(data):
             raise AnyTxtEndpointError("AnyTXT JSON response did not contain a recognised result list.", code=ErrorCodes.INVALID_RESPONSE)
-        hits: List[Dict[str, Any]] = []
+        legacy_hits: List[Dict[str, Any]] = []
         for item in _extract_anytxt_result_items(data):
             hit = _extract_anytxt_hit(item)
             if hit is not None:
-                hits.append(hit)
-        return hits
+                legacy_hits.append(hit)
+        return legacy_hits
 
     payload = json.dumps(_build_anytxt_rpc_payload(query, limit, offset), ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
@@ -364,13 +366,13 @@ def _query_anytxt_hits(url: str, query: str, *, limit: int, offset: int, max_byt
         data = _load_anytxt_json_response(req, timeout=_subprocess_timeout(), max_bytes=max_bytes)
         if not _has_anytxt_result_container(data):
             raise AnyTxtEndpointError("AnyTXT JSON response did not contain a recognised result list.", code=ErrorCodes.INVALID_RESPONSE)
-        hits: List[Dict[str, Any]] = []
+        rpc_hits: List[Dict[str, Any]] = []
         for item in _extract_anytxt_result_items(data):
             hit = _extract_anytxt_hit(item)
             if hit is not None:
-                hits.append(hit)
-        if hits or _has_anytxt_result_container(data):
-            return hits
+                rpc_hits.append(hit)
+        if rpc_hits or _has_anytxt_result_container(data):
+            return rpc_hits
     except AnyTxtEndpointError as exc:
         if exc.code == ErrorCodes.INVALID_RESPONSE:
             raise
@@ -410,7 +412,7 @@ def _query_anytxt_hits(url: str, query: str, *, limit: int, offset: int, max_byt
     if not text_input or not select_name or not search_signal or not drive_options or not ack_id:
         raise AnyTxtEndpointError("AnyTXT Wt UI controls could not be parsed.")
 
-    hits: List[Dict[str, Any]] = []
+    wt_hits: List[Dict[str, Any]] = []
     seen = set()
     for drive_value, drive_label in drive_options:
         fields: List[Tuple[str, str]] = [
@@ -441,8 +443,8 @@ def _query_anytxt_hits(url: str, query: str, *, limit: int, offset: int, max_byt
             if key in seen:
                 continue
             seen.add(key)
-            hits.append(hit)
-    return hits
+            wt_hits.append(hit)
+    return wt_hits
 
 
 def _subprocess_timeout() -> float:

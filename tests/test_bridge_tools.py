@@ -111,6 +111,53 @@ def test_persist_anytxt_url_records_last_known_good(tmp_path, monkeypatch) -> No
     assert data["service"]["last_known_good_anytxt_probe_query"] == "healthcheck"
     assert data["_meta"]["anytxt_runtime"]["last_known_good_url"] == "http://192.168.50.1:9921"
 
+
+def test_persist_anytxt_url_skips_stable_config(tmp_path, monkeypatch) -> None:
+    config_path = tmp_path / "bridge-search.config.json"
+    payload = {
+        "service": {
+            "anytxt_url": "http://winhost:9920",
+            "last_known_good_anytxt_url": "http://winhost:9920",
+            "last_known_good_anytxt_url_updated_at": "2026-01-01T00:00:00Z",
+            "last_known_good_anytxt_url_source": "health",
+            "last_known_good_anytxt_probe_query": "healthcheck",
+        },
+        "_meta": {
+            "anytxt_runtime": {
+                "last_known_good_url": "http://winhost:9920",
+                "last_verified_at": "2026-01-01T00:00:00Z",
+                "last_verified_source": "health",
+                "last_probe_query": "healthcheck",
+            }
+        },
+    }
+    config_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    monkeypatch.setenv("BRIDGE_SEARCH_CONFIG", str(config_path))
+    bridge_config.get_bridge_config(reload=True)
+    before = config_path.read_text(encoding="utf-8")
+
+    persisted = bridge_config.persist_anytxt_url("http://winhost:9920", source="content-locator", probe_query="needle")
+
+    assert persisted == "http://winhost:9920"
+    assert config_path.read_text(encoding="utf-8") == before
+
+
+def test_record_anytxt_runtime_url_persists_only_when_endpoint_changes(monkeypatch) -> None:
+    cfg = copy.deepcopy(bridge_config._DEFAULTS)
+    cfg["service"] = {"anytxt_url": "http://winhost:9920", "last_known_good_anytxt_url": "http://winhost:9920"}
+    monkeypatch.delenv("BRIDGE_SEARCH_ANYTXT_URL", raising=False)
+    monkeypatch.setattr(bridge_config, "get_bridge_config", lambda reload=False: cfg)
+    monkeypatch.setattr(search_backends, "get_bridge_config", lambda reload=False: cfg)
+    persisted = []
+    monkeypatch.setattr(search_backends, "persist_anytxt_url", lambda url, **kwargs: persisted.append((url, kwargs)) or url)
+
+    assert search_backends._record_anytxt_runtime_url("http://winhost:9920", source="health", probe_query="healthcheck") == "http://winhost:9920"
+    assert persisted == []
+
+    assert search_backends._record_anytxt_runtime_url("http://otherhost:9921", source="health", probe_query="healthcheck") == "http://otherhost:9921"
+    assert persisted == [("http://otherhost:9921", {"source": "health", "probe_query": "healthcheck", "force": False})]
+
+
 def test_system_locator_zero_hit_is_success(monkeypatch) -> None:
     monkeypatch.setattr(bridge_tools, "resolve_es_exe", lambda: "/mnt/c/Program Files/Everything/es.exe")
     monkeypatch.setattr(bridge_tools, "backend_enabled", lambda name: name == "everything")

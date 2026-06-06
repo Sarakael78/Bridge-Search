@@ -182,7 +182,7 @@ def _probe_ui(url: str) -> Dict[str, Any]:
         "control_count": 3,
         "drive_count": len(drive_options),
         "bootstrap": "request=script" if sid else "js=no",
-        "persisted": _record_anytxt_runtime_url(url, source="rediscover-ui", probe_query="ui-surface"),
+        "persisted": _record_anytxt_runtime_url(url, source="rediscover-ui", probe_query="ui-surface", force=True),
     }
 
 
@@ -199,7 +199,7 @@ def _probe_search(url: str, *, query: str, limit: int, offset: int) -> Dict[str,
         "probe_query": query,
         "hit_count": len(hits),
         "hits": hits,
-        "persisted": _record_anytxt_runtime_url(url, source="rediscover-search", probe_query=query),
+        "persisted": _record_anytxt_runtime_url(url, source="rediscover-search", probe_query=query, force=True),
     }
 
 
@@ -282,7 +282,7 @@ def main() -> int:
             if report.get("search_query"):
                 search = report.get("search", {})
                 print(f"[+] Search verification: {report['search_query']!r} hits={search.get('hit_count', 0)}")
-            print(f"[+] Endpoint persisted to config as last-known-good.")
+            print("[+] Endpoint persisted to config as last-known-good.")
             if report.get("search") and report["search"].get("hits"):
                 first = report["search"]["hits"][0]
                 path = first.get("path") or first.get("raw_path") or ""
