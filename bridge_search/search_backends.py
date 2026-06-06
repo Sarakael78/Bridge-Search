@@ -290,7 +290,7 @@ def _effective_anytxt_wt_drive_options(drive_options: List[Tuple[str, str]]) -> 
     redundant and can multiply latency by the number of options.
     """
     for drive_value, drive_label in drive_options:
-        normalized_label = re.sub(r"\s+", " ", drive_label or "").strip().lower()
+        normalized_label = " ".join((drive_label or "").split()).lower()
         if drive_value == "" or normalized_label in {"all", "all files", "all file", "everything"}:
             return [(drive_value, drive_label)]
     return drive_options
