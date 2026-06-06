@@ -12,37 +12,475 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
 
-from .config import anytxt_search_url, backend_enabled, clamp_int, command_timeout_seconds, get_bridge_config, get_wsl_host_ip, lim
+from .config import anytxt_search_url, backend_enabled, clamp_int, command_timeout_seconds, get_bridge_config, get_wsl_host_ip, lim, persist_anytxt_url
 from .constants import ErrorCodes
 from .path_policy import allowlist_filters_search_results, canonical_path, is_path_allowed, looks_like_windows_abs_path, path_allowed_for_search_result, resolve_path
 from .result_models import error_response, make_issue, success_response
 
 _GREP_LINE_RE = re.compile(r"^(.+?):(\d+):(.*)$", re.DOTALL)
 _EVERYTHING_HELP_CACHE: Optional[str] = None
-_CACHE_LOCK = threading.Lock()
+_CACHE_LOCK = threading.RLock()
 _WSL_LOCATE_REFRESH_LOCK = threading.Lock()
 _WSL_LOCATE_REFRESH_IN_FLIGHT: set[str] = set()
+
+
+class AnyTxtEndpointError(Exception):
+    """Raised when AnyTXT is reachable but is not exposing a compatible HTTP search API."""
+
+    def __init__(self, message: str, *, code: str = ErrorCodes.ANYTXT_INCOMPATIBLE_ENDPOINT):
+        super().__init__(message)
+        self.code = code
 
 
 def get_effective_anytxt_urls() -> List[str]:
     """Return a list of URLs to try for AnyTXT, with WSL2 host IP fallback if localhost is configured."""
     primary = anytxt_search_url()
     urls = [primary]
+    svc = get_bridge_config().get("service", {})
+    configured_known_good = str(svc.get("last_known_good_anytxt_url", "")).strip()
+    if configured_known_good and configured_known_good not in urls:
+        urls.append(configured_known_good)
     parsed = urllib.parse.urlparse(primary)
     if parsed.hostname in ("127.0.0.1", "localhost"):
         host_ip = get_wsl_host_ip()
         if host_ip and host_ip != "127.0.0.1":
-            # Attempt to rebuild URL with the host IP. 
-            # If no port is in primary, it might be 9921 or 80 depending on scheme.
             netloc = f"{host_ip}:{parsed.port}" if parsed.port else host_ip
             fallback = urllib.parse.urlunparse(parsed._replace(netloc=netloc))
             if fallback not in urls:
                 urls.append(fallback)
+    if configured_known_good:
+        known_parsed = urllib.parse.urlparse(configured_known_good)
+        if known_parsed.hostname in ("127.0.0.1", "localhost"):
+            host_ip = get_wsl_host_ip()
+            if host_ip and host_ip != "127.0.0.1":
+                netloc = f"{host_ip}:{known_parsed.port}" if known_parsed.port else host_ip
+                fallback = urllib.parse.urlunparse(known_parsed._replace(netloc=netloc))
+                if fallback not in urls:
+                    urls.append(fallback)
     return urls
+
+
+def _record_anytxt_runtime_url(url: str, *, source: str, probe_query: str) -> str:
+    """Persist the last verified AnyTXT endpoint for future discovery."""
+    return persist_anytxt_url(url, source=source, probe_query=probe_query)
+
+
+def _anytxt_uses_legacy_search(url: str) -> bool:
+    """Detect the older GET /search?q=... endpoint."""
+    parsed = urllib.parse.urlparse(url)
+    return parsed.path.rstrip("/").endswith("/search")
+
+
+def _build_anytxt_rpc_payload(query: str, limit: int, offset: int) -> Dict[str, Any]:
+    return {
+        "id": 123,
+        "jsonrpc": "2.0",
+        "method": "ATRpcServer.Searcher.V1.GetResult",
+        "params": {
+            "input": {
+                "pattern": query,
+                "filterDir": "*",
+                "filterExt": "*",
+                "lastModifyBegin": 0,
+                "lastModifyEnd": 2147483647,
+                "limit": str(limit),
+                "offset": offset,
+                "order": 0,
+            }
+        },
+    }
+
+
+def _extract_anytxt_result_items(data: Any) -> List[Dict[str, Any]]:
+    """Pull the result list out of the many JSON shapes AnyTXT may return."""
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    if not isinstance(data, dict):
+        return []
+    for key in ("results", "files", "items"):
+        val = data.get(key)
+        if isinstance(val, list):
+            return [item for item in val if isinstance(item, dict)]
+    for key in ("result", "output", "data", "response"):
+        val = data.get(key)
+        items = _extract_anytxt_result_items(val)
+        if items:
+            return items
+    return []
+
+
+def _has_anytxt_result_container(data: Any) -> bool:
+    """Return True when JSON has a recognised AnyTXT result list, even if empty."""
+    if isinstance(data, list):
+        return True
+    if not isinstance(data, dict):
+        return False
+    for key in ("results", "files", "items"):
+        if isinstance(data.get(key), list):
+            return True
+    for key in ("result", "output", "data", "response"):
+        if _has_anytxt_result_container(data.get(key)):
+            return True
+    return False
+
+
+def _extract_anytxt_hit(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    path_keys = ("path", "filePath", "filepath", "fullPath", "fullpath", "file_path", "name")
+    snippet_keys = ("snippet", "content", "fragment", "text", "matchedText", "preview", "excerpt")
+    fid_keys = ("fid", "fileId", "file_id", "id")
+    line_keys = ("line_number", "lineNumber", "line", "ln")
+    raw_path = ""
+    for key in path_keys:
+        val = item.get(key)
+        if isinstance(val, str) and val.strip():
+            raw_path = val.strip()
+            break
+    if not raw_path:
+        return None
+    snippet = ""
+    for key in snippet_keys:
+        val = item.get(key)
+        if isinstance(val, str) and val.strip():
+            snippet = val.strip()
+            break
+    if not snippet and isinstance(item.get("fragments"), list):
+        for frag in item["fragments"]:
+            if isinstance(frag, dict):
+                for key in snippet_keys:
+                    val = frag.get(key)
+                    if isinstance(val, str) and val.strip():
+                        snippet = val.strip()
+                        break
+                if snippet:
+                    break
+    hit: Dict[str, Any] = {"type": "content_hit", "path": raw_path, "raw_path": raw_path, "snippet": snippet, "source": "windows-anytxt"}
+    for key in fid_keys:
+        val = item.get(key)
+        if val not in (None, ""):
+            hit["fid"] = val
+            break
+    for key in line_keys:
+        val = item.get(key)
+        if isinstance(val, int):
+            hit["line_number"] = val
+            break
+        if isinstance(val, str) and val.strip().isdigit():
+            hit["line_number"] = int(val.strip())
+            break
+    return hit
+
+
+def _strip_tags(value: str) -> str:
+    return re.sub(r"<[^>]+>", " ", value).replace("\xa0", " ")
+
+
+def _html_unescape_text(value: str) -> str:
+    import html as _html
+
+    return _html.unescape(value)
+
+
+def _extract_anytxt_wt_token(page_html: str) -> Optional[str]:
+    m = re.search(r"\?wtd=([A-Za-z0-9]+)", page_html)
+    return m.group(1) if m else None
+
+
+def _extract_anytxt_wt_sid(page_html: str) -> Optional[str]:
+    m = re.search(r"var\s+w='\?wtd=[^']+'\+\"&sid=\"\+(\d+)", page_html)
+    return m.group(1) if m else None
+
+
+def _extract_anytxt_wt_ack(page_html: str) -> Optional[str]:
+    for pattern in (r"Wt\._p_\.response\((\d+)", r"\bZ=(\d+),Va="):
+        m = re.search(pattern, page_html, re.S)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _extract_anytxt_wt_page_id(page_html: str) -> str:
+    m = re.search(r"Wt\._p_\.setPage\((\d+)\)", page_html)
+    return m.group(1) if m else "1"
+
+
+def _normalise_anytxt_wt_markup(page_html: str) -> str:
+    """Make Wt JavaScript string fragments parseable as ordinary HTML-ish text."""
+    return (
+        page_html
+        .replace(r"\r", "\r")
+        .replace(r"\n", "\n")
+        .replace(r"\t", "\t")
+        .replace(r"\"", '"')
+        .replace(r"\'", "'")
+        .replace(r"\/", "/")
+    )
+
+
+def _extract_anytxt_wt_search_button_id(page_html: str) -> Optional[str]:
+    html = _normalise_anytxt_wt_markup(page_html)
+    for m in re.finditer(r"<button([^>]*)>(.*?)</button>", html, re.I | re.S):
+        attrs = m.group(1)
+        inner = _strip_tags(m.group(2)).strip()
+        if inner.lower() != "search":
+            continue
+        button_id = re.search(r"id=[\"']([^\"']+)[\"']", attrs, re.I)
+        if button_id:
+            return button_id.group(1)
+    return None
+
+
+def _extract_anytxt_wt_controls(page_html: str) -> Tuple[Optional[str], Optional[str], Optional[str], List[Tuple[str, str]]]:
+    html = _normalise_anytxt_wt_markup(page_html)
+    text_input = None
+    select_name = None
+    search_signal = None
+    drive_options: List[Tuple[str, str]] = []
+
+    for m in re.finditer(r"<input([^>]*)>", html, re.I | re.S):
+        attrs = m.group(1)
+        typ = re.search(r"type=[\"']([^\"']+)[\"']", attrs, re.I)
+        name = re.search(r"name=[\"']([^\"']+)[\"']", attrs, re.I)
+        if typ and name and typ.group(1).lower() == "text":
+            text_input = name.group(1)
+            break
+
+    # Prefer the compact search-bar select, not the larger filter modal selects.
+    for m in re.finditer(r"<select([^>]*)>(.*?)</select>", html, re.I | re.S):
+        attrs = m.group(1)
+        body = m.group(2)
+        name = re.search(r"name=[\"']([^\"']+)[\"']", attrs, re.I)
+        if not name:
+            continue
+        if "text-center form-control" not in attrs and select_name is not None:
+            continue
+        select_name = name.group(1)
+        drive_options = []
+        for opt in re.finditer(r"<option[^>]*value=[\"']([^\"']*)[\"'][^>]*>(.*?)</option>", body, re.I | re.S):
+            drive_options.append((opt.group(1), _strip_tags(opt.group(2)).strip()))
+        break
+
+    for m in re.finditer(r"<button([^>]*)>(.*?)</button>", html, re.I | re.S):
+        attrs = m.group(1)
+        inner = _strip_tags(m.group(2)).strip()
+        if inner.lower() != "search":
+            continue
+        signal = re.search(r"Wt\._p_\.update\(o,[\"']([^\"']+)[\"']", attrs, re.I)
+        name = re.search(r"name=[\"']([^\"']+)[\"']", attrs, re.I)
+        if signal:
+            search_signal = signal.group(1)
+            break
+        if name:
+            search_signal = name.group(1)
+            break
+
+    if select_name and not drive_options:
+        drive_options = [("", "All Files")]
+
+    return text_input, select_name, search_signal, drive_options
+
+
+def _extract_anytxt_wt_results(page_html: str) -> List[Dict[str, Any]]:
+    html = _normalise_anytxt_wt_markup(page_html)
+    if "No files were found" in html:
+        return []
+    cards: List[Dict[str, Any]] = []
+    card_re = re.compile(
+        r'<button[^>]+title="Click to view file text content"[^>]*>.*?'
+        r'<a href="#" class="pe-none">(.*?)</a>.*?</button>\s*'
+        r'<div[^>]*><div>(.*?)</div></div>\s*'
+        r'<div[^>]*><div><font color="green">(.*?)</font>',
+        re.I | re.S,
+    )
+    for m in card_re.finditer(html):
+        title = _html_unescape_text(_strip_tags(m.group(1)).strip())
+        snippet = _html_unescape_text(_strip_tags(m.group(2)).strip())
+        raw_path = _html_unescape_text(_strip_tags(m.group(3)).strip())
+        if not raw_path:
+            continue
+        cards.append({
+            "type": "content_hit",
+            "path": raw_path,
+            "raw_path": raw_path,
+            "snippet": snippet,
+            "title": title,
+            "source": "windows-anytxt",
+        })
+    return cards
+
+
+def _load_anytxt_json_response(req: urllib.request.Request, *, timeout: float, max_bytes: int) -> Dict[str, Any]:
+    """Read an AnyTXT HTTP response and return JSON, with explicit UI/HTML detection."""
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:  # nosec B310 (config-controlled local AnyTXT HTTP service)
+            raw = response.read(max_bytes + 1)
+            headers = getattr(response, "headers", {})
+            content_type = (headers.get("content-type") or "").lower()
+            if len(raw) > max_bytes:
+                raise AnyTxtEndpointError(
+                    f"Response exceeded {max_bytes} bytes; raise anytxt_max_response_bytes if needed.",
+                    code=ErrorCodes.RESPONSE_TOO_LARGE,
+                )
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise AnyTxtEndpointError(
+                "AnyTXT is reachable, but the configured endpoint returned 404. The current AnyTXT build may not be exposing the expected HTTP search API."
+            ) from exc
+        raise
+
+    stripped = raw.lstrip()
+    if "html" in content_type or stripped.startswith((b"<!DOCTYPE html", b"<html", b"<HTML")):
+        raise AnyTxtEndpointError(
+            "AnyTXT returned HTML instead of JSON. This is the web UI endpoint, not the bridge-compatible HTTP search API."
+        )
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise AnyTxtEndpointError(f"Invalid JSON ({exc})", code=ErrorCodes.INVALID_RESPONSE) from exc
+    return data
+
+
+def _query_anytxt_hits(url: str, query: str, *, limit: int, offset: int, max_bytes: int) -> List[Dict[str, Any]]:
+    if _anytxt_uses_legacy_search(url):
+        sep = "&" if urllib.parse.urlparse(url).query else "?"
+        req = urllib.request.Request(f"{url}{sep}q={urllib.parse.quote(query)}")
+        data = _load_anytxt_json_response(req, timeout=_subprocess_timeout(), max_bytes=max_bytes)
+        if not _has_anytxt_result_container(data):
+            raise AnyTxtEndpointError("AnyTXT JSON response did not contain a recognised result list.", code=ErrorCodes.INVALID_RESPONSE)
+        hits: List[Dict[str, Any]] = []
+        for item in _extract_anytxt_result_items(data):
+            hit = _extract_anytxt_hit(item)
+            if hit is not None:
+                hits.append(hit)
+        return hits
+
+    payload = json.dumps(_build_anytxt_rpc_payload(query, limit, offset), ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Accept": "application/json", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        data = _load_anytxt_json_response(req, timeout=_subprocess_timeout(), max_bytes=max_bytes)
+        if not _has_anytxt_result_container(data):
+            raise AnyTxtEndpointError("AnyTXT JSON response did not contain a recognised result list.", code=ErrorCodes.INVALID_RESPONSE)
+        hits: List[Dict[str, Any]] = []
+        for item in _extract_anytxt_result_items(data):
+            hit = _extract_anytxt_hit(item)
+            if hit is not None:
+                hits.append(hit)
+        if hits or _has_anytxt_result_container(data):
+            return hits
+    except AnyTxtEndpointError as exc:
+        if exc.code == ErrorCodes.INVALID_RESPONSE:
+            raise
+
+    parsed = urllib.parse.urlparse(url)
+    base = urllib.parse.urlunparse(parsed._replace(path="", params="", query="", fragment=""))
+
+    def _open(req: urllib.request.Request) -> str:
+        with urllib.request.urlopen(req, timeout=_subprocess_timeout()) as response:  # nosec B310 (config-controlled local AnyTXT HTML UI)
+            raw = response.read(max_bytes + 1)
+            if len(raw) > max_bytes:
+                raise AnyTxtEndpointError(
+                    f"Response exceeded {max_bytes} bytes; raise anytxt_max_response_bytes if needed.",
+                    code=ErrorCodes.RESPONSE_TOO_LARGE,
+                )
+            return decode_windows_output(raw)
+
+    root_html = _open(urllib.request.Request(base, headers={"Accept": "text/html,application/xhtml+xml"}))
+    token = _extract_anytxt_wt_token(root_html)
+    if not token:
+        raise AnyTxtEndpointError("AnyTXT returned HTML, but the Wt session token could not be determined.")
+
+    sid = _extract_anytxt_wt_sid(root_html)
+    if sid:
+        session_url = (
+            f"{base}?wtd={token}&sid={sid}&scrW=1024&scrH=768&tz=0"
+            "&htmlHistory=true&deployPath=/&request=script&rand=123456"
+        )
+        session_html = _open(urllib.request.Request(session_url, headers={"Accept": "text/javascript,*/*"}))
+    else:
+        session_html = _open(urllib.request.Request(f"{base}?wtd={token}&js=no", headers={"Accept": "text/html,application/xhtml+xml"}))
+
+    text_input, select_name, search_signal, drive_options = _extract_anytxt_wt_controls(session_html)
+    button_id = _extract_anytxt_wt_search_button_id(session_html)
+    ack_id = _extract_anytxt_wt_ack(session_html)
+    page_id = _extract_anytxt_wt_page_id(session_html)
+    if not text_input or not select_name or not search_signal or not drive_options or not ack_id:
+        raise AnyTxtEndpointError("AnyTXT Wt UI controls could not be parsed.")
+
+    hits: List[Dict[str, Any]] = []
+    seen = set()
+    for drive_value, drive_label in drive_options:
+        fields: List[Tuple[str, str]] = [
+            ("request", "jsupdate"),
+            ("signal", search_signal),
+            (select_name, drive_value),
+            (text_input, query),
+            ("focus", text_input),
+        ]
+        if button_id:
+            fields.extend([("tid", button_id), ("type", "click"), ("button", "1")])
+        fields.extend([("ackId", ack_id), ("pageId", page_id)])
+        req = urllib.request.Request(
+            f"{base}?wtd={token}",
+            data=urllib.parse.urlencode(fields).encode("utf-8"),
+            headers={
+                "Accept": "text/javascript,text/html,application/xhtml+xml,*/*",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            method="POST",
+        )
+        page_html = _open(req)
+        if "Please input at least 2 letters." in _normalise_anytxt_wt_markup(page_html):
+            raise AnyTxtEndpointError("AnyTXT Wt UI rejected the query as too short or empty.", code=ErrorCodes.QUERY_REQUIRED)
+        for hit in _extract_anytxt_wt_results(page_html):
+            hit.setdefault("drive", drive_label or drive_value or "All Files")
+            key = (canonical_path(str(hit.get("path") or "")), str(hit.get("snippet") or ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            hits.append(hit)
+    return hits
 
 
 def _subprocess_timeout() -> float:
     return command_timeout_seconds()
+
+
+def _powershell_single_quote(value: str) -> str:
+    """Return a PowerShell-safe single-quoted string literal."""
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", "replace")
+    else:
+        value = str(value)
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _run_everything_windows_command(args: List[str], *, timeout: float) -> subprocess.CompletedProcess:
+    """Run Everything via PowerShell so WSL Python does not talk to es.exe directly.
+
+    Direct `subprocess.run([es.exe, ...])` can hang under WSL interop even when
+    the same command works from a shell. Wrapping the call in PowerShell keeps the
+    bridge on a more reliable Windows execution path.
+    """
+    es_exe = resolve_es_exe()
+    if not es_exe:
+        raise OSError("es.exe not found")
+    es_exe_win = resolve_path(es_exe, "windows") if not looks_like_windows_abs_path(es_exe) else es_exe
+    if isinstance(es_exe_win, bytes):
+        es_exe_win = es_exe_win.decode("utf-8", "replace")
+    if not str(es_exe_win).strip():
+        es_exe_win = es_exe
+    ps_parts = ["&", _powershell_single_quote(es_exe_win)]
+    ps_parts.extend(_powershell_single_quote(str(arg)) for arg in args)
+    ps_command = " ".join(ps_parts)
+    return subprocess.run(
+        ["powershell.exe", "-NoProfile", "-Command", ps_command],
+        capture_output=True,
+        timeout=timeout,
+    )
 
 
 def _normalized_query(query: str) -> str:
@@ -143,11 +581,7 @@ def everything_help_text(force_reload: bool = False) -> str:
             _EVERYTHING_HELP_CACHE = ""
             return ""
         try:
-            result = subprocess.run(
-                [es_exe, "-help"],
-                capture_output=True,
-                timeout=_subprocess_timeout(),
-            )
+            result = _run_everything_windows_command(["-help"], timeout=_subprocess_timeout())
         except (OSError, subprocess.TimeoutExpired):
             _EVERYTHING_HELP_CACHE = ""
             return ""
@@ -455,7 +889,7 @@ def system_locator(query: str, target_env: str = "windows", exact_match: bool = 
                     offset,
                     allow_native_paging=not run_wsl_find,
                 )
-                process = subprocess.run(cmd, capture_output=True, timeout=_subprocess_timeout())
+                process = _run_everything_windows_command(cmd[1:], timeout=_subprocess_timeout())
                 if process.returncode == 0 and process.stdout:
                     lines = _parse_everything_results(process.stdout, native_paging=native_paging)
                     for line in lines:
@@ -630,40 +1064,34 @@ def content_locator(query: str, target_env: str = "everywhere", wsl_search_path:
         effective_urls = get_effective_anytxt_urls()
         for url in effective_urls:
             try:
-                sep = "&" if urllib.parse.urlparse(url).query else "?"
-                req = urllib.request.Request(f"{url}{sep}q={urllib.parse.quote(query)}")
-                with urllib.request.urlopen(req, timeout=_subprocess_timeout()) as response:  # nosec B310 (config-controlled local AnyTXT HTTP service)
-                    if response.status == 200:
-                        raw = response.read(cap_anytxt + 1)
-                        if len(raw) > cap_anytxt:
-                            a_errors.append(make_issue(code=ErrorCodes.RESPONSE_TOO_LARGE, message=f"Response exceeded {cap_anytxt} bytes; raise anytxt_max_response_bytes if needed.", source="windows-anytxt"))
-                        else:
-                            data = json.loads(raw.decode("utf-8"))
-                            if not isinstance(data, dict) or not isinstance(data.get("results"), list):
-                                a_errors.append(make_issue(code=ErrorCodes.INVALID_RESPONSE, message="AnyTXT response has unexpected structure (expected {\"results\": [...]})", source="windows-anytxt"))
-                                continue
-                            for item in data.get("results", []):
-                                if len(a_results) >= cap_loc:
-                                    break
-                                raw_path = str(item.get("path", "")).strip()
-                                if not raw_path:
-                                    continue
-                                mapped = resolve_path(raw_path, "wsl") if looks_like_windows_abs_path(raw_path) else raw_path
-                                if not path_allowed_for_search_result(mapped):
-                                    continue
-                                if mapped == raw_path and looks_like_windows_abs_path(raw_path):
-                                    a_warnings.append(make_issue(code=ErrorCodes.PATH_TRANSLATION_FAILED, message=f"Could not translate Windows path to WSL form: {raw_path}", source="windows-anytxt", path=raw_path))
-                                a_results.append({"type": "content_hit", "path": mapped, "raw_path": raw_path, "snippet": item.get("snippet", ""), "source": "windows-anytxt"})
-                        used_url = url
-                        anytxt_ok = True
+                hits = _query_anytxt_hits(url, query, limit=page_cap, offset=offset, max_bytes=cap_anytxt)
+                for item in hits:
+                    if len(a_results) >= cap_loc:
                         break
-            except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+                    raw_path = str(item.get("raw_path") or item.get("path") or "").strip()
+                    if not raw_path:
+                        continue
+                    mapped = resolve_path(raw_path, "wsl") if looks_like_windows_abs_path(raw_path) else raw_path
+                    if not path_allowed_for_search_result(mapped):
+                        continue
+                    if mapped == raw_path and looks_like_windows_abs_path(raw_path):
+                        a_warnings.append(make_issue(code=ErrorCodes.PATH_TRANSLATION_FAILED, message=f"Could not translate Windows path to WSL form: {raw_path}", source="windows-anytxt", path=raw_path))
+                    hit = dict(item)
+                    hit["path"] = mapped
+                    hit["raw_path"] = raw_path
+                    hit.setdefault("source", "windows-anytxt")
+                    a_results.append(hit)
+                used_url = url
+                anytxt_ok = True
+                _record_anytxt_runtime_url(url, source="content-locator", probe_query=query)
+                break
+            except (OSError, urllib.error.URLError, AnyTxtEndpointError) as exc:
                 last_err = exc
                 continue
         
         if not anytxt_ok and last_err:
-            if isinstance(last_err, json.JSONDecodeError):
-                a_errors.append(make_issue(code=ErrorCodes.INVALID_RESPONSE, message=f"Invalid JSON ({last_err})", source="windows-anytxt"))
+            if isinstance(last_err, AnyTxtEndpointError):
+                a_errors.append(make_issue(code=last_err.code, message=str(last_err), source="windows-anytxt"))
             elif _is_timeout_error(last_err):
                 a_errors.append(make_issue(code=ErrorCodes.BACKEND_TIMEOUT, message="AnyTXT query timed out.", source="windows-anytxt"))
             else:

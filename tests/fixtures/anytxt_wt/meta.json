@@ -1,0 +1,8 @@
+{
+  "base_url": "http://<wsl-default-gateway>:9921",
+  "token_redacted_length": 16,
+  "sid_redacted_length": 10,
+  "root_bytes": 4949,
+  "script_bytes": 133867,
+  "script_url_shape": "/?wtd=<token>&sid=<sid>&scrW=1024&scrH=768&tz=0&htmlHistory=true&deployPath=/&request=script&rand=123456"
+}

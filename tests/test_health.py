@@ -49,3 +49,16 @@ def test_check_health_wsl_only(monkeypatch):
     assert res["backends"]["wsl_find"]["status"] == "ok"
     assert res["backends"]["wsl_grep"]["status"] == "ok"
     assert res["overall_success"] is True
+
+
+def test_check_health_anytxt_endpoint_error(monkeypatch):
+    monkeypatch.setattr(config, "backend_enabled", lambda name: name == "anytxt")
+    monkeypatch.setattr(config, "lim", lambda key: 1024)
+
+    import bridge_search.health as health_mod
+    monkeypatch.setattr(health_mod, "get_effective_anytxt_urls", lambda: ["http://127.0.0.1:9920"])
+    monkeypatch.setattr(health_mod, "_query_anytxt_hits", lambda *args, **kwargs: (_ for _ in ()).throw(health_mod.AnyTxtEndpointError("API not available")))
+
+    res = check_health()
+    assert res["backends"]["anytxt"]["status"] == "error"
+    assert res["errors"][0]["code"] == "anytxt_incompatible_endpoint"

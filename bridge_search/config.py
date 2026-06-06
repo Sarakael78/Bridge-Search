@@ -5,12 +5,16 @@ import functools
 import json
 import os
 import sys
+import ipaddress
+import subprocess
+import tempfile
 import urllib.parse
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 _DEFAULTS: Dict[str, Any] = {
     "version": 1,
-    "service": {"anytxt_url": "http://127.0.0.1:9921/search"},
+    "service": {"anytxt_url": "http://127.0.0.1:9920", "last_known_good_anytxt_url": ""},
     "security": {
         "path_denylist": "default",
         "custom_restricted_prefixes": [],
@@ -42,8 +46,24 @@ _BACKEND_ENV = {
     "wsl_grep": "BRIDGE_SEARCH_ENABLE_WSL_GREP",
 }
 
-def get_wsl_host_ip() -> Optional[str]:
-    """Auto-discover the Windows host IP from /etc/resolv.conf in WSL2."""
+def _is_probable_wsl_host_ip(value: str) -> bool:
+    """Return True for private IPv4 gateways that can plausibly be the WSL host."""
+    try:
+        ip = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    if ip.version != 4:
+        return False
+    if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
+        return False
+    # Tailscale DNS (100.100.100.100 / 100.64.0.0/10) can own resolv.conf and is not
+    # the Windows host gateway. Prefer RFC1918 WSL/Hyper-V gateway addresses.
+    if ip in ipaddress.ip_network("100.64.0.0/10"):
+        return False
+    return ip.is_private
+
+
+def _first_nameserver_from_resolv_conf() -> Optional[str]:
     if not os.path.exists("/etc/resolv.conf"):
         return None
     try:
@@ -51,11 +71,42 @@ def get_wsl_host_ip() -> Optional[str]:
             for line in f:
                 if line.strip().startswith("nameserver"):
                     parts = line.split()
-                    if len(parts) >= 2:
+                    if len(parts) >= 2 and _is_probable_wsl_host_ip(parts[1]):
                         return parts[1]
     except OSError:
         pass
     return None
+
+
+def _default_gateway_ip() -> Optional[str]:
+    try:
+        result = subprocess.run(
+            ["ip", "route", "show", "default"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[0] == "default" and parts[1] == "via":
+            if _is_probable_wsl_host_ip(parts[2]):
+                return parts[2]
+    return None
+
+
+def get_wsl_host_ip() -> Optional[str]:
+    """Auto-discover the Windows host IP from WSL2 resolver/route state."""
+    env = os.environ.get("BRIDGE_SEARCH_WSL_HOST_IP", "").strip()
+    if env and _is_probable_wsl_host_ip(env):
+        return env
+    # Classic WSL writes the host gateway into resolv.conf; VPN/Tailscale setups may
+    # replace it with their own DNS, so fall back to the default route gateway.
+    return _first_nameserver_from_resolv_conf() or _default_gateway_ip()
 
 
 def command_timeout_seconds() -> float:
@@ -148,7 +199,10 @@ def _is_private_host(hostname: Optional[str]) -> bool:
 
 
 def normalize_anytxt_url(raw: str) -> str:
-    """Normalize a base AnyTXT URL or endpoint into a canonical `/search` endpoint.
+    """Normalize an AnyTXT HTTP endpoint.
+
+    The bridge supports both the newer JSON-RPC API root (default, e.g. `http://127.0.0.1:9920`)
+    and the older `/search` style endpoint when explicitly configured.
 
     Emits a stderr warning if the resulting URL points to a non-private host
     (potential SSRF risk).
@@ -168,11 +222,7 @@ def normalize_anytxt_url(raw: str) -> str:
             "AnyTXT should run on localhost or a private network",
             file=sys.stderr,
         )
-    path = parsed.path or ""
-    if path.rstrip("/").endswith("/search"):
-        clean_path = path.rstrip("/")
-        return urllib.parse.urlunparse(parsed._replace(path=clean_path, query="", fragment=""))
-    return f"{url.rstrip('/')}/search"
+    return urllib.parse.urlunparse(parsed._replace(query="", fragment=""))
 
 
 def anytxt_search_url() -> str:
@@ -183,6 +233,60 @@ def anytxt_search_url() -> str:
     svc = get_bridge_config().get("service", _DEFAULTS["service"])
     raw = str(svc.get("anytxt_url", _DEFAULTS["service"]["anytxt_url"]))
     return normalize_anytxt_url(raw)
+
+
+def persist_anytxt_url(url: str, *, source: str = "", probe_query: str = "") -> str:
+    """Persist a working AnyTXT URL back into the runtime config file.
+
+    The current live endpoint is written to `service.anytxt_url`. The same value
+    is also mirrored into `service.last_known_good_anytxt_url` and a `_meta`
+    audit block so the last verified URL remains easy to inspect even if later
+    sessions override the live endpoint via environment variables.
+    """
+    normalized = normalize_anytxt_url(url)
+    config_path = config_paths()[0]
+    try:
+        if os.path.isfile(config_path):
+            with open(config_path, "r", encoding="utf-8") as handle:
+                raw = json.load(handle)
+            payload = raw if isinstance(raw, dict) else {}
+        else:
+            payload = {}
+        payload.setdefault("service", {})
+        service = payload["service"]
+        service["last_known_good_anytxt_url"] = normalized
+        service["last_known_good_anytxt_url_updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        if source:
+            service["last_known_good_anytxt_url_source"] = source
+        if probe_query:
+            service["last_known_good_anytxt_probe_query"] = probe_query
+        if not os.environ.get("BRIDGE_SEARCH_ANYTXT_URL", "").strip():
+            service["anytxt_url"] = normalized
+        meta = payload.setdefault("_meta", {})
+        runtime = meta.setdefault("anytxt_runtime", {})
+        runtime["last_known_good_url"] = normalized
+        runtime["last_verified_at"] = service["last_known_good_anytxt_url_updated_at"]
+        if source:
+            runtime["last_verified_source"] = source
+        if probe_query:
+            runtime["last_probe_query"] = probe_query
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(prefix=".bridge-search.", suffix=".json", dir=os.path.dirname(config_path))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2)
+                handle.write("\n")
+            os.replace(tmp_path, config_path)
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+        get_bridge_config(reload=True)
+    except Exception as exc:
+        print(f"bridge-search: warning: could not persist AnyTXT URL to {config_path}: {exc}", file=sys.stderr)
+    return normalized
 
 
 def clamp_int(value: int, low: int, high: int) -> int:

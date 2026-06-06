@@ -2,6 +2,7 @@
 
 import copy
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 from bridge_search import bridge_tools
@@ -10,6 +11,13 @@ from bridge_search import file_ops
 from bridge_search import path_policy
 from bridge_search import search_backends
 import scripts.setup_skill as setup_skill
+
+
+def _command_text(cmd) -> str:
+    """Flatten subprocess argv for assertions across direct and PowerShell-wrapped calls."""
+    if isinstance(cmd, (list, tuple)):
+        return "\n".join(str(part) for part in cmd)
+    return str(cmd)
 
 
 def test_auto_target_env_windows_paths_use_wsl_branch() -> None:
@@ -84,8 +92,24 @@ def test_backend_enabled_env_overrides_config(monkeypatch) -> None:
 
 def test_anytxt_url_env_override(monkeypatch) -> None:
     monkeypatch.setenv("BRIDGE_SEARCH_ANYTXT_URL", "http://host.docker.internal:9921")
-    assert bridge_tools.anytxt_search_url() == "http://host.docker.internal:9921/search"
+    assert bridge_tools.anytxt_search_url() == "http://host.docker.internal:9921"
 
+
+def test_persist_anytxt_url_records_last_known_good(tmp_path, monkeypatch) -> None:
+    config_path = tmp_path / "bridge-search.config.json"
+    config_path.write_text(json.dumps({"service": {"anytxt_url": "http://127.0.0.1:9920"}}), encoding="utf-8")
+    monkeypatch.setenv("BRIDGE_SEARCH_CONFIG", str(config_path))
+    bridge_config.get_bridge_config(reload=True)
+
+    persisted = bridge_config.persist_anytxt_url("http://192.168.50.1:9921", source="health", probe_query="healthcheck")
+    assert persisted == "http://192.168.50.1:9921"
+
+    data = json.loads(config_path.read_text(encoding="utf-8"))
+    assert data["service"]["anytxt_url"] == "http://192.168.50.1:9921"
+    assert data["service"]["last_known_good_anytxt_url"] == "http://192.168.50.1:9921"
+    assert data["service"]["last_known_good_anytxt_url_source"] == "health"
+    assert data["service"]["last_known_good_anytxt_probe_query"] == "healthcheck"
+    assert data["_meta"]["anytxt_runtime"]["last_known_good_url"] == "http://192.168.50.1:9921"
 
 def test_system_locator_zero_hit_is_success(monkeypatch) -> None:
     monkeypatch.setattr(bridge_tools, "resolve_es_exe", lambda: "/mnt/c/Program Files/Everything/es.exe")
@@ -160,8 +184,9 @@ def test_system_locator_uses_everything_native_paging_when_supported(monkeypatch
         lambda path, env: "/mnt/d/Docs/" + path.split("\\")[-1] if env == "wsl" else path,
     )
     result = bridge_tools.system_locator("txt", target_env="windows", limit=2, offset=5)
-    assert "-viewport-offset" in seen["cmd"]
-    assert "-viewport-count" in seen["cmd"]
+    command_text = _command_text(seen["cmd"])
+    assert "-viewport-offset" in command_text
+    assert "-viewport-count" in command_text
     assert result["meta"]["everything_native_paging"] is True
     assert result["meta"]["has_more"] is True
     assert result["meta"]["total_found_exact"] is False
@@ -186,8 +211,9 @@ def test_system_locator_everywhere_disables_native_paging_for_consistent_merge(m
     monkeypatch.setattr(search_backends.subprocess, "run", fake_run)
     monkeypatch.setattr(search_backends, "resolve_path", lambda path, env: "/mnt/d/Docs/one.txt" if env == "wsl" else path)
     result = bridge_tools.system_locator("txt", target_env="everywhere", limit=2, offset=0)
-    assert "-viewport-offset" not in seen["cmd"]
-    assert "-viewport-count" not in seen["cmd"]
+    command_text = _command_text(seen["cmd"])
+    assert "-viewport-offset" not in command_text
+    assert "-viewport-count" not in command_text
     assert result["meta"]["everything_native_paging"] is False
 
 
@@ -209,7 +235,7 @@ def test_non_native_locator_reports_exact_total_when_known(monkeypatch) -> None:
 
 def test_content_locator_anytxt_uses_configured_runtime_url(monkeypatch) -> None:
     monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "anytxt")
-    monkeypatch.setenv("BRIDGE_SEARCH_ANYTXT_URL", "http://winhost:9921/api")
+    monkeypatch.setenv("BRIDGE_SEARCH_ANYTXT_URL", "http://winhost:9920")
 
     class FakeResponse:
         status = 200
@@ -218,7 +244,7 @@ def test_content_locator_anytxt_uses_configured_runtime_url(monkeypatch) -> None
         def __exit__(self, exc_type, exc, tb):
             return False
         def read(self, _max_bytes):
-            return b'{"results": [{"path": "C:\\\\Users\\\\david\\\\memo.txt", "snippet": "needle here"}]}'
+            return b'{"result": {"output": {"files": [{"path": "C:\\\\Users\\\\david\\\\memo.txt", "snippet": "needle here"}]}}}'
 
     seen = {}
     def fake_urlopen(req, timeout=5):
@@ -228,7 +254,7 @@ def test_content_locator_anytxt_uses_configured_runtime_url(monkeypatch) -> None
     monkeypatch.setattr(search_backends.urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(search_backends, "resolve_path", lambda path, env: "/mnt/c/Users/david/memo.txt" if path == r"C:\Users\david\memo.txt" and env == "wsl" else path)
     result = bridge_tools.content_locator("needle", target_env="windows")
-    assert seen["url"] == "http://winhost:9921/api/search?q=needle"
+    assert seen["url"] == "http://winhost:9920"
     assert result["results"][0]["path"] == "/mnt/c/Users/david/memo.txt"
 
 
@@ -405,6 +431,20 @@ def test_integration_like_anytxt_invalid_json(monkeypatch) -> None:
     assert result["errors"][0]["code"] == "invalid_response"
 
 
+def test_integration_like_anytxt_html_ui_is_incompatible(monkeypatch) -> None:
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "anytxt")
+    class FakeResponse:
+        status = 200
+        headers = {"content-type": "text/html; charset=UTF-8"}
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb): return False
+        def read(self, _max_bytes): return b"<!DOCTYPE html><html><title>Anytxt Searcher</title>"
+    monkeypatch.setattr(search_backends.urllib.request, "urlopen", lambda req, timeout=5: FakeResponse())
+    result = bridge_tools.content_locator("needle", target_env="windows")
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "anytxt_incompatible_endpoint"
+
+
 def test_integration_like_path_translation_failure_warns(monkeypatch) -> None:
     monkeypatch.setattr(search_backends, "resolve_es_exe", lambda: "/mnt/c/Program Files/Everything/es.exe")
     monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "everything")
@@ -451,10 +491,10 @@ def test_anytxt_timeout_surfaces_structured_timeout(monkeypatch) -> None:
 def test_setup_skill_normalizes_and_persists_anytxt_url(tmp_path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    config_path = setup_skill._write_runtime_config(str(repo_root), "http://winhost:9921")
+    config_path = setup_skill._write_runtime_config(str(repo_root), "http://winhost:9920")
     payload = (repo_root / "config" / "bridge-search.config.json").read_text(encoding="utf-8")
     assert config_path.endswith("bridge-search.config.json")
-    assert '"anytxt_url": "http://winhost:9921/search"' in payload
+    assert '"anytxt_url": "http://winhost:9920"' in payload
 
 
 def test_setup_skill_mcporter_register_replaces_existing(monkeypatch, tmp_path) -> None:
@@ -619,6 +659,67 @@ def test_anytxt_unexpected_structure_returns_invalid_response(monkeypatch) -> No
     result = bridge_tools.content_locator("needle", target_env="windows")
     assert result["success"] is False
     assert any(e["code"] == "invalid_response" for e in result["errors"])
+
+
+def test_anytxt_wt_live_bootstrap_controls_are_parseable() -> None:
+    fixture = Path(__file__).parent / "fixtures" / "anytxt_wt" / "live_bootstrap.js"
+    text_input, select_name, search_signal, drive_options = search_backends._extract_anytxt_wt_controls(
+        fixture.read_text(encoding="utf-8")
+    )
+    assert text_input
+    assert select_name
+    assert search_signal
+    assert drive_options == [("", "All Files")]
+
+
+def test_anytxt_wt_no_files_response_is_clean_zero_hits() -> None:
+    fixture = Path(__file__).parent / "fixtures" / "anytxt_wt" / "live_vat201_no_files_response.js"
+    assert search_backends._extract_anytxt_wt_results(fixture.read_text(encoding="utf-8")) == []
+
+
+def test_anytxt_wt_driver_returns_zero_hits_for_live_no_files_flow(monkeypatch) -> None:
+    fixture_dir = Path(__file__).parent / "fixtures" / "anytxt_wt"
+    root_html = (fixture_dir / "live_root.html").read_text(encoding="utf-8")
+    bootstrap_js = (fixture_dir / "live_bootstrap.js").read_text(encoding="utf-8")
+    no_files_js = (fixture_dir / "live_vat201_no_files_response.js").read_text(encoding="utf-8")
+    responses = iter(
+        [
+            (b"<!DOCTYPE html><html></html>", "text/html; charset=UTF-8"),
+            (root_html.encode("utf-8"), "text/html; charset=UTF-8"),
+            (bootstrap_js.encode("utf-8"), "text/javascript; charset=UTF-8"),
+            (no_files_js.encode("utf-8"), "text/javascript; charset=UTF-8"),
+        ]
+    )
+
+    class FakeResponse:
+        status = 200
+
+        def __init__(self, body: bytes, content_type: str):
+            self._body = body
+            self.headers = {"content-type": content_type, "Content-Type": content_type}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, _max_bytes):
+            return self._body
+
+    def fake_urlopen(req, timeout=5):
+        body, content_type = next(responses)
+        return FakeResponse(body, content_type)
+
+    monkeypatch.setattr(search_backends.urllib.request, "urlopen", fake_urlopen)
+    hits = search_backends._query_anytxt_hits(
+        "http://192.168.50.2:9921",
+        "VAT201",
+        limit=3,
+        offset=0,
+        max_bytes=500_000,
+    )
+    assert hits == []
 
 
 def test_escape_find_glob_escapes_brackets() -> None:

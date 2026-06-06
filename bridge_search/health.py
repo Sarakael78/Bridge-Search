@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Tuple
 
 from . import config
 from .constants import ErrorCodes
-from .search_backends import get_effective_anytxt_urls, resolve_es_exe, _wsl_locate_db_is_stale, _wsl_locate_db_path, _wsl_filename_find_root
+from .search_backends import AnyTxtEndpointError, get_effective_anytxt_urls, resolve_es_exe, _query_anytxt_hits, _record_anytxt_runtime_url, _wsl_locate_db_is_stale, _wsl_locate_db_path, _wsl_filename_find_root
 
 
 def run_command_capture(cmd: List[str], timeout: float = 30) -> Tuple[int, str, str]:
@@ -82,25 +82,26 @@ def check_health() -> Dict[str, Any]:
         anytxt_reachable = False
         probed_urls = []
         for url in urls:
-            # Probe the actual search endpoint so health matches runtime behavior.
-            sep = "&" if "?" in url else "?"
-            probe_url = f"{url}{sep}q=healthcheck"
-            probed_urls.append(probe_url)
+            # Probe the runtime search API, not just the UI root.
+            probed_urls.append(url)
             try:
-                with urllib.request.urlopen(probe_url, timeout=5) as resp:  # nosec B310 (local operator-configured AnyTXT endpoint)
-                    if resp.status == 200:
-                        anytxt_reachable = True
-                        results["backends"]["anytxt"]["url_working"] = probe_url
-                        break
+                _query_anytxt_hits(url, "healthcheck", limit=1, offset=0, max_bytes=config.lim("anytxt_max_response_bytes"))
+                anytxt_reachable = True
+                results["backends"]["anytxt"]["url_working"] = url
+                _record_anytxt_runtime_url(url, source="health", probe_query="healthcheck")
+                break
+            except AnyTxtEndpointError as exc:
+                results["backends"]["anytxt"]["endpoint_error"] = str(exc)
+                continue
             except (urllib.error.URLError, OSError, TimeoutError, ValueError):
                 continue
-        
+
         if not anytxt_reachable:
             results["backends"]["anytxt"]["status"] = "error"
             results["backends"]["anytxt"]["probed_urls"] = probed_urls
             results["errors"].append({
-                "code": ErrorCodes.ANYTXT_UNREACHABLE,
-                "message": f"AnyTXT HTTP service not reachable at configured URLs: {probed_urls}"
+                "code": ErrorCodes.ANYTXT_INCOMPATIBLE_ENDPOINT,
+                "message": f"AnyTXT HTTP search API not reachable or not bridge-compatible: {probed_urls}"
             })
             results["overall_success"] = False
         else:

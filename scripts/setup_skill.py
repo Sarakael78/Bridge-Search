@@ -20,7 +20,7 @@ if ROOT not in sys.path:
 from bridge_search.health import check_health, run_command_capture  # noqa: E402
 
 
-DEFAULT_ANYTXT_URL = "http://127.0.0.1:9921/search"
+DEFAULT_ANYTXT_URL = "http://127.0.0.1:9920"
 
 
 def run_command(cmd: Sequence[str], description: str) -> bool:
@@ -66,7 +66,7 @@ def parse_args() -> argparse.Namespace:
         "--anytxt-url",
         default=DEFAULT_ANYTXT_URL,
         metavar="URL",
-        help="Runtime/search URL for AnyTXT HTTP (default: http://127.0.0.1:9921/search). Accepts either a base URL or the full /search endpoint.",
+        help="Runtime/search URL for AnyTXT HTTP (default: http://127.0.0.1:9920). Accepts either a base URL or the full /search endpoint.",
     )
     p.add_argument(
         "--restart-gateway",
@@ -344,7 +344,8 @@ def setup(args: argparse.Namespace) -> None:
     print("\nAgents can now use tools from bridge-search.")
     print(
         "Tip: `python3 scripts/setup_skill.py --help` — "
-        "--venv, --dev, --skip-checks, --anytxt-url, --restart-gateway, --openclaw-allowlist"
+        "--venv, --dev, --skip-checks, --anytxt-url, --restart-gateway, --openclaw-allowlist; "
+        "`python3 scripts/rediscover_anytxt_endpoint.py` for endpoint rediscovery"
     )
 
 
