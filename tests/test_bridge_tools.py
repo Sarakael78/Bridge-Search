@@ -497,6 +497,47 @@ def test_setup_skill_normalizes_and_persists_anytxt_url(tmp_path) -> None:
     assert '"anytxt_url": "http://winhost:9920"' in payload
 
 
+def test_setup_skill_health_checks_rediscover_anytxt(monkeypatch) -> None:
+    calls = []
+    first = {
+        "overall_success": False,
+        "backends": {"anytxt": {"enabled": True, "status": "error"}},
+        "errors": [{"code": "anytxt_incompatible_endpoint", "message": "bad endpoint"}],
+        "warnings": [],
+    }
+    second = {
+        "overall_success": True,
+        "backends": {"anytxt": {"enabled": True, "status": "ok"}},
+        "errors": [],
+        "warnings": [],
+    }
+
+    def fake_check_health():
+        calls.append("health")
+        return first if len(calls) == 1 else second
+
+    rediscovered = []
+    monkeypatch.setattr(setup_skill, "check_health", fake_check_health)
+    monkeypatch.setattr(setup_skill, "_rediscover_anytxt_for_setup", lambda: rediscovered.append(True) or True)
+
+    assert setup_skill._health_checks(setup_skill.DEFAULT_ANYTXT_URL) is True
+    assert calls == ["health", "health"]
+    assert rediscovered == [True]
+
+
+def test_setup_skill_health_checks_skip_rediscover_when_anytxt_disabled(monkeypatch) -> None:
+    result = {
+        "overall_success": True,
+        "backends": {"anytxt": {"enabled": False}},
+        "errors": [],
+        "warnings": [],
+    }
+    monkeypatch.setattr(setup_skill, "check_health", lambda: result)
+    monkeypatch.setattr(setup_skill, "_rediscover_anytxt_for_setup", lambda: (_ for _ in ()).throw(AssertionError("should not rediscover")))
+
+    assert setup_skill._health_checks(setup_skill.DEFAULT_ANYTXT_URL) is True
+
+
 def test_setup_skill_mcporter_register_replaces_existing(monkeypatch, tmp_path) -> None:
     persist = tmp_path / "mcporter.json"
     calls = []
