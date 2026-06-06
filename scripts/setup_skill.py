@@ -20,7 +20,7 @@ if ROOT not in sys.path:
 from bridge_search.health import check_health, run_command_capture  # noqa: E402
 
 
-DEFAULT_ANYTXT_URL = "http://127.0.0.1:9921/search"
+DEFAULT_ANYTXT_URL = "http://127.0.0.1:9920"
 
 
 def run_command(cmd: Sequence[str], description: str) -> bool:
@@ -66,7 +66,7 @@ def parse_args() -> argparse.Namespace:
         "--anytxt-url",
         default=DEFAULT_ANYTXT_URL,
         metavar="URL",
-        help="Runtime/search URL for AnyTXT HTTP (default: http://127.0.0.1:9921/search). Accepts either a base URL or the full /search endpoint.",
+        help="Runtime/search URL for AnyTXT HTTP (default: http://127.0.0.1:9920). Accepts either a base URL or the full /search endpoint.",
     )
     p.add_argument(
         "--restart-gateway",
@@ -133,8 +133,53 @@ def _pip_install(
     return True
 
 
+def _print_health_results(results: dict) -> None:
+    for err in results["errors"]:
+        print(f"[!] {err['message']}")
+
+    for warn in results["warnings"]:
+        print(f"[~] {warn['message']}")
+
+    for name, stat in results["backends"].items():
+        if stat["enabled"] and stat.get("status") == "ok":
+            print(f"[+] {name} backend OK.")
+
+
+def _anytxt_needs_rediscovery(results: dict) -> bool:
+    anytxt = results.get("backends", {}).get("anytxt", {})
+    if not anytxt.get("enabled"):
+        return False
+    if anytxt.get("status") == "ok":
+        return False
+    return any(
+        str(err.get("code", "")).startswith("anytxt_")
+        for err in results.get("errors", [])
+    )
+
+
+def _rediscover_anytxt_for_setup() -> bool:
+    try:
+        from scripts.rediscover_anytxt_endpoint import discover_anytxt_endpoint
+
+        report = discover_anytxt_endpoint(
+            query="healthcheck",
+            fallback_query="Anytxt",
+            limit=1,
+            offset=0,
+            verify_search=True,
+        )
+    except Exception as exc:
+        print(f"[!] AnyTXT endpoint rediscovery failed: {exc}")
+        return False
+    if not report.get("success"):
+        print("[!] AnyTXT endpoint rediscovery found no compatible endpoint.")
+        return False
+    print(f"[+] AnyTXT endpoint rediscovered: {report.get('working_url')}")
+    return True
+
+
 def _health_checks(anytxt_url: str) -> bool:
-    """Return True if all required probes pass."""
+    """Return True if all required probes pass, rediscovering AnyTXT if the default endpoint moved."""
     from bridge_search import config as bridge_config
 
     old_url = os.environ.get("BRIDGE_SEARCH_ANYTXT_URL")
@@ -144,16 +189,14 @@ def _health_checks(anytxt_url: str) -> bool:
         bridge_config.get_bridge_config(reload=True)
 
         results = check_health()
+        _print_health_results(results)
 
-        for err in results["errors"]:
-            print(f"[!] {err['message']}")
-
-        for warn in results["warnings"]:
-            print(f"[~] {warn['message']}")
-
-        for name, stat in results["backends"].items():
-            if stat["enabled"] and stat.get("status") == "ok":
-                print(f"[+] {name} backend OK.")
+        if not results["overall_success"] and _anytxt_needs_rediscovery(results):
+            print("[~] AnyTXT check failed; scanning common WSL/Windows host endpoints...")
+            if _rediscover_anytxt_for_setup():
+                bridge_config.get_bridge_config(reload=True)
+                results = check_health()
+                _print_health_results(results)
 
         return results["overall_success"]
     finally:
@@ -344,7 +387,8 @@ def setup(args: argparse.Namespace) -> None:
     print("\nAgents can now use tools from bridge-search.")
     print(
         "Tip: `python3 scripts/setup_skill.py --help` — "
-        "--venv, --dev, --skip-checks, --anytxt-url, --restart-gateway, --openclaw-allowlist"
+        "--venv, --dev, --skip-checks, --anytxt-url, --restart-gateway, --openclaw-allowlist; "
+        "`python3 scripts/rediscover_anytxt_endpoint.py` for endpoint rediscovery"
     )
 
 

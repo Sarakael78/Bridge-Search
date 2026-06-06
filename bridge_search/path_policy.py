@@ -148,7 +148,10 @@ def _resolve_path_uncached(path: str, target_env: str) -> str:
                 check=True,
                 timeout=command_timeout_seconds(),
             )
-            return result.stdout.strip()
+            stdout = result.stdout
+            if isinstance(stdout, bytes):
+                stdout = stdout.decode("utf-8", "replace")
+            return stdout.strip()
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
             pass
     elif env == "windows" and (path.startswith("/mnt/") or path.startswith("/")):
@@ -160,7 +163,10 @@ def _resolve_path_uncached(path: str, target_env: str) -> str:
                 check=True,
                 timeout=command_timeout_seconds(),
             )
-            return result.stdout.strip()
+            stdout = result.stdout
+            if isinstance(stdout, bytes):
+                stdout = stdout.decode("utf-8", "replace")
+            return stdout.strip()
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
             pass
     return path

@@ -89,7 +89,7 @@ Everything is the preferred Windows filename backend.
 
 ### Windows content search: AnyTXT
 
-AnyTXT is accessed over HTTP.
+AnyTXT is accessed over HTTP via its Search Service / JSON-RPC API endpoint (default the service root on port 9920).
 
 - Runtime endpoint comes from config or `BRIDGE_SEARCH_ANYTXT_URL`; non-private hosts and unexpected URL schemes log warnings to stderr (operator override).
 - Response size is capped.

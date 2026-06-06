@@ -1,3 +1,4 @@
+import json
 import subprocess
 from types import SimpleNamespace
 
@@ -49,3 +50,42 @@ def test_check_health_wsl_only(monkeypatch):
     assert res["backends"]["wsl_find"]["status"] == "ok"
     assert res["backends"]["wsl_grep"]["status"] == "ok"
     assert res["overall_success"] is True
+
+
+def test_check_health_anytxt_endpoint_error(monkeypatch):
+    monkeypatch.setattr(config, "backend_enabled", lambda name: name == "anytxt")
+    monkeypatch.setattr(config, "lim", lambda key: 1024)
+
+    import bridge_search.health as health_mod
+    monkeypatch.setattr(health_mod, "get_effective_anytxt_urls", lambda: ["http://127.0.0.1:9920"])
+    monkeypatch.setattr(health_mod, "_query_anytxt_hits", lambda *args, **kwargs: (_ for _ in ()).throw(health_mod.AnyTxtEndpointError("API not available")))
+
+    res = check_health()
+    assert res["backends"]["anytxt"]["status"] == "error"
+    assert res["errors"][0]["code"] == "anytxt_incompatible_endpoint"
+
+
+def test_check_health_does_not_rewrite_stable_anytxt_config(tmp_path, monkeypatch):
+    config_path = tmp_path / "bridge-search.config.json"
+    payload = {
+        "service": {
+            "anytxt_url": "http://winhost:9920",
+            "last_known_good_anytxt_url": "http://winhost:9920",
+            "last_known_good_anytxt_url_updated_at": "2026-01-01T00:00:00Z",
+        },
+        "_meta": {"anytxt_runtime": {"last_known_good_url": "http://winhost:9920"}},
+        "backends": {"everything": False, "anytxt": True, "wsl_locate": False, "wsl_find": False, "wsl_grep": False},
+    }
+    config_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    monkeypatch.setenv("BRIDGE_SEARCH_CONFIG", str(config_path))
+    config.get_bridge_config(reload=True)
+
+    import bridge_search.health as health_mod
+    monkeypatch.setattr(health_mod, "get_effective_anytxt_urls", lambda: ["http://winhost:9920"])
+    monkeypatch.setattr(health_mod, "_query_anytxt_hits", lambda *args, **kwargs: [])
+    before = config_path.read_text(encoding="utf-8")
+
+    res = check_health()
+
+    assert res["backends"]["anytxt"]["status"] == "ok"
+    assert config_path.read_text(encoding="utf-8") == before

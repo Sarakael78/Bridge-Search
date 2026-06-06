@@ -3,7 +3,7 @@
   "_write_note": "manage_file(write) now replaces by default. Use write_mode='append' per request when you explicitly want append semantics.",
   "version": 1,
   "service": {
-    "anytxt_url": "http://127.0.0.1:9921/search"
+    "anytxt_url": "http://127.0.0.1:9920"
   },
   "security": {
     "path_denylist": "default",

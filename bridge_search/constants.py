@@ -57,3 +57,4 @@ class ErrorCodes:
     EVERYTHING_MISSING: Final[str] = "everything_missing"
     EVERYTHING_SERVICE_ERROR: Final[str] = "everything_service_error"
     ANYTXT_UNREACHABLE: Final[str] = "anytxt_unreachable"
+    ANYTXT_INCOMPATIBLE_ENDPOINT: Final[str] = "anytxt_incompatible_endpoint"
