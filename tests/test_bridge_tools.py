@@ -766,7 +766,9 @@ def test_anytxt_wt_default_drive_option_suppresses_redundant_specific_options() 
 
 
 def test_anytxt_wt_driver_queries_default_drive_option_once(monkeypatch) -> None:
-    monkeypatch.setattr(search_backends, "_load_anytxt_json_response", lambda *args, **kwargs: (_ for _ in ()).throw(search_backends.AnyTxtEndpointError("html")))
+    def mock_load(*args, **kwargs):
+        raise search_backends.AnyTxtEndpointError("html")
+    monkeypatch.setattr(search_backends, "_load_anytxt_json_response", mock_load)
     monkeypatch.setattr(search_backends, "_extract_anytxt_wt_controls", lambda _html: ("q", "drive", "search", [("", "All Files"), ("C:", "C:")]))
     monkeypatch.setattr(search_backends, "_extract_anytxt_wt_search_button_id", lambda _html: None)
     monkeypatch.setattr(search_backends, "_extract_anytxt_wt_ack", lambda _html: "1")
