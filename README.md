@@ -64,6 +64,23 @@ The clone directory name must be **`windows-search`** for the agent to correctly
 
 `install.sh` forwards extra flags to `scripts/setup_skill.py` and defaults to `--venv` (for example: `./install.sh --skip-checks` or `./install.sh --dev`).
 
+### Existing installs / upgrading
+
+If you already have Bridge Search installed, update the repo and rerun setup so the MCP registration, dependencies, runtime config, and health checks are refreshed:
+
+```bash
+cd /path/to/windows-search
+git pull
+./install.sh
+# then restart your MCP host / agent gateway if it is already running
+```
+
+During setup, Bridge Search will probe the configured AnyTXT endpoint. If that endpoint no longer works, it will scan common WSL/Windows host endpoints, persist the working URL to `config/bridge-search.config.json`, and rerun health checks. If your AnyTXT service is reachable but not verified, run:
+
+```bash
+python3 scripts/rediscover_anytxt_endpoint.py --verify-search
+```
+
 ### 4. MCP client (`mcporter`) on WSL
 
 The bridge exposes MCP over stdio. **`setup_skill.py`** can register it; otherwise you need **[mcporter](https://github.com/steipete/mcporter)** (or another MCP host that launches `scripts/server.py`, or `python3 -m bridge_search` when the `bridge_search` package is on `PYTHONPATH` / installed editable from this repo). Install Node.js, then:
@@ -305,7 +322,7 @@ Example configs now also expose:
 
 **AnyTXT HTTP URL:** By default, the bridge uses `http://127.0.0.1:9920`. Update this via the `--anytxt-url` flag during setup, by editing `config/bridge-search.config.json` (`service.anytxt_url`), or by setting `BRIDGE_SEARCH_ANYTXT_URL`.
 
-**Installer note:** `setup_skill.py` persists the AnyTXT runtime URL into `config/bridge-search.config.json`, and if a `bridge-search` mcporter entry already exists it will replace it instead of failing outright.
+**Installer note:** `setup_skill.py` persists the AnyTXT runtime URL into `config/bridge-search.config.json`, replaces an existing `bridge-search` mcporter entry instead of failing outright, and now attempts AnyTXT endpoint rediscovery automatically when the configured endpoint fails health checks.
 
 ### Manual MCP Registration
 
