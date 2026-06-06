@@ -1083,7 +1083,8 @@ def content_locator(query: str, target_env: str = "everywhere", wsl_search_path:
                     a_results.append(hit)
                 used_url = url
                 anytxt_ok = True
-                _record_anytxt_runtime_url(url, source="content-locator", probe_query=query)
+                if url != anytxt_search_url():
+                    _record_anytxt_runtime_url(url, source="content-locator", probe_query=query)
                 break
             except (OSError, urllib.error.URLError, AnyTxtEndpointError) as exc:
                 last_err = exc
