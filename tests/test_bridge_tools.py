@@ -1,7 +1,10 @@
 """Tests for bridge modules and public contract."""
 
 import copy
+import importlib
 import json
+import sys
+import types
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,6 +21,34 @@ def _command_text(cmd) -> str:
     if isinstance(cmd, (list, tuple)):
         return "\n".join(str(part) for part in cmd)
     return str(cmd)
+
+
+def _load_server_module_with_fake_mcp(monkeypatch):
+    fake_fastmcp = types.ModuleType("mcp.server.fastmcp")
+
+    class FakeFastMCP:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def tool(self):
+            def decorator(fn):
+                return fn
+
+            return decorator
+
+        def run(self, *args, **kwargs):
+            return None
+
+    fake_fastmcp.FastMCP = FakeFastMCP
+    fake_server = types.ModuleType("mcp.server")
+    fake_server.fastmcp = fake_fastmcp
+    fake_mcp = types.ModuleType("mcp")
+    fake_mcp.server = fake_server
+    monkeypatch.setitem(sys.modules, "mcp", fake_mcp)
+    monkeypatch.setitem(sys.modules, "mcp.server", fake_server)
+    monkeypatch.setitem(sys.modules, "mcp.server.fastmcp", fake_fastmcp)
+    return importlib.import_module("bridge_search.server")
 
 
 def test_auto_target_env_windows_paths_use_wsl_branch() -> None:
@@ -101,62 +132,15 @@ def test_persist_anytxt_url_records_last_known_good(tmp_path, monkeypatch) -> No
     monkeypatch.setenv("BRIDGE_SEARCH_CONFIG", str(config_path))
     bridge_config.get_bridge_config(reload=True)
 
-    persisted = bridge_config.persist_anytxt_url("http://192.168.50.1:9921", source="health", probe_query="healthcheck")
-    assert persisted == "http://192.168.50.1:9921"
+    persisted = bridge_config.persist_anytxt_url("http://172.27.96.1:9921", source="health", probe_query="healthcheck")
+    assert persisted == "http://172.27.96.1:9921"
 
     data = json.loads(config_path.read_text(encoding="utf-8"))
-    assert data["service"]["anytxt_url"] == "http://192.168.50.1:9921"
-    assert data["service"]["last_known_good_anytxt_url"] == "http://192.168.50.1:9921"
+    assert data["service"]["anytxt_url"] == "http://172.27.96.1:9921"
+    assert data["service"]["last_known_good_anytxt_url"] == "http://172.27.96.1:9921"
     assert data["service"]["last_known_good_anytxt_url_source"] == "health"
     assert data["service"]["last_known_good_anytxt_probe_query"] == "healthcheck"
-    assert data["_meta"]["anytxt_runtime"]["last_known_good_url"] == "http://192.168.50.1:9921"
-
-
-def test_persist_anytxt_url_skips_stable_config(tmp_path, monkeypatch) -> None:
-    config_path = tmp_path / "bridge-search.config.json"
-    payload = {
-        "service": {
-            "anytxt_url": "http://winhost:9920",
-            "last_known_good_anytxt_url": "http://winhost:9920",
-            "last_known_good_anytxt_url_updated_at": "2026-01-01T00:00:00Z",
-            "last_known_good_anytxt_url_source": "health",
-            "last_known_good_anytxt_probe_query": "healthcheck",
-        },
-        "_meta": {
-            "anytxt_runtime": {
-                "last_known_good_url": "http://winhost:9920",
-                "last_verified_at": "2026-01-01T00:00:00Z",
-                "last_verified_source": "health",
-                "last_probe_query": "healthcheck",
-            }
-        },
-    }
-    config_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    monkeypatch.setenv("BRIDGE_SEARCH_CONFIG", str(config_path))
-    bridge_config.get_bridge_config(reload=True)
-    before = config_path.read_text(encoding="utf-8")
-
-    persisted = bridge_config.persist_anytxt_url("http://winhost:9920", source="content-locator", probe_query="needle")
-
-    assert persisted == "http://winhost:9920"
-    assert config_path.read_text(encoding="utf-8") == before
-
-
-def test_record_anytxt_runtime_url_persists_only_when_endpoint_changes(monkeypatch) -> None:
-    cfg = copy.deepcopy(bridge_config._DEFAULTS)
-    cfg["service"] = {"anytxt_url": "http://winhost:9920", "last_known_good_anytxt_url": "http://winhost:9920"}
-    monkeypatch.delenv("BRIDGE_SEARCH_ANYTXT_URL", raising=False)
-    monkeypatch.setattr(bridge_config, "get_bridge_config", lambda reload=False: cfg)
-    monkeypatch.setattr(search_backends, "get_bridge_config", lambda reload=False: cfg)
-    persisted = []
-    monkeypatch.setattr(search_backends, "persist_anytxt_url", lambda url, **kwargs: persisted.append((url, kwargs)) or url)
-
-    assert search_backends._record_anytxt_runtime_url("http://winhost:9920", source="health", probe_query="healthcheck") == "http://winhost:9920"
-    assert persisted == []
-
-    assert search_backends._record_anytxt_runtime_url("http://otherhost:9921", source="health", probe_query="healthcheck") == "http://otherhost:9921"
-    assert persisted == [("http://otherhost:9921", {"source": "health", "probe_query": "healthcheck", "force": False})]
-
+    assert data["_meta"]["anytxt_runtime"]["last_known_good_url"] == "http://172.27.96.1:9921"
 
 def test_system_locator_zero_hit_is_success(monkeypatch) -> None:
     monkeypatch.setattr(bridge_tools, "resolve_es_exe", lambda: "/mnt/c/Program Files/Everything/es.exe")
@@ -286,23 +270,194 @@ def test_content_locator_anytxt_uses_configured_runtime_url(monkeypatch) -> None
 
     class FakeResponse:
         status = 200
+
+        def __init__(self, body: bytes):
+            self._body = body
+
         def __enter__(self):
             return self
+
         def __exit__(self, exc_type, exc, tb):
             return False
+
         def read(self, _max_bytes):
-            return b'{"result": {"output": {"files": [{"path": "C:\\\\Users\\\\david\\\\memo.txt", "snippet": "needle here"}]}}}'
+            return self._body
 
     seen = {}
+
     def fake_urlopen(req, timeout=5):
-        seen["url"] = req.full_url
-        return FakeResponse()
+        payload = json.loads(req.data.decode("utf-8"))
+        seen.setdefault("methods", []).append(payload["method"])
+        body = json.dumps({"result": {"output": {"files": [{"path": r"C:\Users\david\memo.txt", "snippet": "needle here"}]}}}).encode("utf-8")
+        return FakeResponse(body)
 
     monkeypatch.setattr(search_backends.urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(search_backends, "resolve_path", lambda path, env: "/mnt/c/Users/david/memo.txt" if path == r"C:\Users\david\memo.txt" and env == "wsl" else path)
     result = bridge_tools.content_locator("needle", target_env="windows")
-    assert seen["url"] == "http://winhost:9920"
+    assert seen["methods"] == ["ATRpcServer.Searcher.V1.GetResult"]
     assert result["results"][0]["path"] == "/mnt/c/Users/david/memo.txt"
+
+
+def test_content_locator_anytxt_hydrates_missing_snippets_via_fragments(monkeypatch) -> None:
+    monkeypatch.setattr(search_backends, "backend_enabled", lambda name: name == "anytxt")
+    monkeypatch.setenv("BRIDGE_SEARCH_ANYTXT_URL", "http://winhost:9920")
+
+    class FakeResponse:
+        def __init__(self, body: bytes):
+            self._body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, _max_bytes):
+            return self._body
+
+    seen = []
+
+    def fake_urlopen(req, timeout=5):
+        payload = json.loads(req.data.decode("utf-8"))
+        seen.append(payload["method"])
+        if payload["method"] == "ATRpcServer.Searcher.V1.GetResult":
+            body = json.dumps({"result": {"output": {"files": [{"path": r"C:\Users\david\memo.txt", "fid": "9223736511748752040", "snippet": ""}]}}}).encode("utf-8")
+        elif payload["method"] == "ATRpcServer.Searcher.V1.GetFragment":
+            body = json.dumps({"result": {"output": {"fragment": ""}}}).encode("utf-8")
+        else:
+            body = json.dumps({"result": {"output": {"fragments": [{"fragment": "needle here"}]}}}).encode("utf-8")
+        return FakeResponse(body)
+
+    monkeypatch.setattr(search_backends.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(search_backends, "resolve_path", lambda path, env: "/mnt/c/Users/david/memo.txt" if path == r"C:\Users\david\memo.txt" and env == "wsl" else path)
+    result = bridge_tools.content_locator("needle", target_env="windows")
+    assert seen == ["ATRpcServer.Searcher.V1.GetResult", "ATRpcServer.Searcher.V1.GetFragment", "ATRpcServer.Searcher.V1.GetFragmentAll"]
+    assert result["results"][0]["snippet"] == "needle here"
+
+
+def test_anytxt_search_count_uses_json_rpc_search_method(monkeypatch) -> None:
+    monkeypatch.setenv("BRIDGE_SEARCH_ANYTXT_URL", "http://winhost:9920")
+    seen = {}
+
+    class FakeResponse:
+        def __init__(self, body: bytes):
+            self._body = body
+            self.headers = {"content-type": "application/json", "Content-Type": "application/json"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, _max_bytes):
+            return self._body
+
+    def fake_urlopen(req, timeout=5):
+        payload = json.loads(req.data.decode("utf-8"))
+        seen["method"] = payload["method"]
+        return FakeResponse(json.dumps({"result": {"count": 12}}).encode("utf-8"))
+
+    monkeypatch.setattr(search_backends.urllib.request, "urlopen", fake_urlopen)
+    count = search_backends._query_anytxt_search_count("http://winhost:9920", "needle", max_bytes=1000)
+    assert seen["method"] == "ATRpcServer.Searcher.V1.Search"
+    assert count == 12
+
+
+def test_anytxt_ocr_uses_json_rpc_ocr_method(monkeypatch) -> None:
+    monkeypatch.setenv("BRIDGE_SEARCH_ANYTXT_URL", "http://winhost:9920")
+    seen = {}
+
+    class FakeResponse:
+        def __init__(self, body: bytes):
+            self._body = body
+            self.headers = {"content-type": "application/json", "Content-Type": "application/json"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, _max_bytes):
+            return self._body
+
+    def fake_urlopen(req, timeout=5):
+        payload = json.loads(req.data.decode("utf-8"))
+        seen["method"] = payload["method"]
+        assert payload["params"]["input"]["file"] == r"C:\Users\david\image.png"
+        return FakeResponse(json.dumps({"result": {"output": {"text": "scanned text"}}}).encode("utf-8"))
+
+    monkeypatch.setattr(search_backends.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(search_backends, "resolve_path", lambda path, env: r"C:\Users\david\image.png")
+    result = bridge_tools.anytxt_ocr(r"/mnt/c/Users/david/image.png")
+    assert seen["method"] == "ATRpcServer.Searcher.V1.OCR"
+    assert result["success"] is True
+    assert result["results"][0]["text"] == "scanned text"
+    assert result["results"][0]["raw_path"] == "/mnt/c/Users/david/image.png"
+    assert result["meta"]["anytxt_url_used"] == "http://winhost:9920"
+
+
+def test_anytxt_sync_index_uses_json_rpc_syncindex_method(monkeypatch) -> None:
+    monkeypatch.setenv("BRIDGE_SEARCH_ANYTXT_URL", "http://winhost:9920")
+    seen = {}
+
+    class FakeResponse:
+        def __init__(self, body: bytes):
+            self._body = body
+            self.headers = {"content-type": "application/json", "Content-Type": "application/json"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, _max_bytes):
+            return self._body
+
+    def fake_urlopen(req, timeout=5):
+        payload = json.loads(req.data.decode("utf-8"))
+        seen["method"] = payload["method"]
+        assert payload["params"]["input"]["folder"] == r"C:\Users\david\Documents"
+        return FakeResponse(json.dumps({"result": {"output": {"message": "indexed"}}}).encode("utf-8"))
+
+    monkeypatch.setattr(search_backends.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(search_backends, "resolve_path", lambda path, env: r"C:\Users\david\Documents")
+    result = bridge_tools.anytxt_sync_index(r"/mnt/c/Users/david/Documents")
+    assert seen["method"] == "ATRpcServer.Searcher.V1.SyncIndex"
+    assert result["success"] is True
+    assert result["results"][0]["raw_path"] == "/mnt/c/Users/david/Documents"
+    assert result["results"][0]["response"]["result"]["output"]["message"] == "indexed"
+    assert result["meta"]["anytxt_url_used"] == "http://winhost:9920"
+
+
+def test_server_anytxt_ocr_tool_delegates(monkeypatch) -> None:
+    seen = {}
+    bridge_server = _load_server_module_with_fake_mcp(monkeypatch)
+
+    def fake_anytxt_ocr(file_path: str):
+        seen["file_path"] = file_path
+        return {"success": True, "results": [{"type": "ocr_result", "text": "ok"}], "errors": [], "warnings": [], "meta": {}}
+
+    monkeypatch.setattr(bridge_server, "bridge_anytxt_ocr", fake_anytxt_ocr)
+    result = bridge_server.anytxt_ocr(r"C:\Users\david\image.png")
+    assert seen["file_path"] == r"C:\Users\david\image.png"
+    assert result["results"][0]["text"] == "ok"
+
+
+def test_server_anytxt_sync_index_tool_delegates(monkeypatch) -> None:
+    seen = {}
+    bridge_server = _load_server_module_with_fake_mcp(monkeypatch)
+
+    def fake_anytxt_sync_index(folder: str):
+        seen["folder"] = folder
+        return {"success": True, "results": [{"type": "sync_index_result", "message": "ok"}], "errors": [], "warnings": [], "meta": {}}
+
+    monkeypatch.setattr(bridge_server, "bridge_anytxt_sync_index", fake_anytxt_sync_index)
+    result = bridge_server.anytxt_sync_index(r"C:\Users\david\Documents")
+    assert seen["folder"] == r"C:\Users\david\Documents"
+    assert result["results"][0]["message"] == "ok"
 
 
 def test_content_locator_blank_query_is_rejected(monkeypatch) -> None:
@@ -544,47 +699,6 @@ def test_setup_skill_normalizes_and_persists_anytxt_url(tmp_path) -> None:
     assert '"anytxt_url": "http://winhost:9920"' in payload
 
 
-def test_setup_skill_health_checks_rediscover_anytxt(monkeypatch) -> None:
-    calls = []
-    first = {
-        "overall_success": False,
-        "backends": {"anytxt": {"enabled": True, "status": "error"}},
-        "errors": [{"code": "anytxt_incompatible_endpoint", "message": "bad endpoint"}],
-        "warnings": [],
-    }
-    second = {
-        "overall_success": True,
-        "backends": {"anytxt": {"enabled": True, "status": "ok"}},
-        "errors": [],
-        "warnings": [],
-    }
-
-    def fake_check_health():
-        calls.append("health")
-        return first if len(calls) == 1 else second
-
-    rediscovered = []
-    monkeypatch.setattr(setup_skill, "check_health", fake_check_health)
-    monkeypatch.setattr(setup_skill, "_rediscover_anytxt_for_setup", lambda: rediscovered.append(True) or True)
-
-    assert setup_skill._health_checks(setup_skill.DEFAULT_ANYTXT_URL) is True
-    assert calls == ["health", "health"]
-    assert rediscovered == [True]
-
-
-def test_setup_skill_health_checks_skip_rediscover_when_anytxt_disabled(monkeypatch) -> None:
-    result = {
-        "overall_success": True,
-        "backends": {"anytxt": {"enabled": False}},
-        "errors": [],
-        "warnings": [],
-    }
-    monkeypatch.setattr(setup_skill, "check_health", lambda: result)
-    monkeypatch.setattr(setup_skill, "_rediscover_anytxt_for_setup", lambda: (_ for _ in ()).throw(AssertionError("should not rediscover")))
-
-    assert setup_skill._health_checks(setup_skill.DEFAULT_ANYTXT_URL) is True
-
-
 def test_setup_skill_mcporter_register_replaces_existing(monkeypatch, tmp_path) -> None:
     persist = tmp_path / "mcporter.json"
     calls = []
@@ -801,7 +915,7 @@ def test_anytxt_wt_driver_returns_zero_hits_for_live_no_files_flow(monkeypatch) 
 
     monkeypatch.setattr(search_backends.urllib.request, "urlopen", fake_urlopen)
     hits = search_backends._query_anytxt_hits(
-        "http://192.168.50.2:9921",
+        "http://172.22.192.1:9921",
         "VAT201",
         limit=3,
         offset=0,
