@@ -356,13 +356,9 @@ hermes config set mcp_servers.bridge-search.enabled true
 hermes config set mcp_servers.bridge-search.timeout 30
 ```
 
-This requires `start-bridge-search.sh` — a thin wrapper that launches the venv's Python with `-m bridge_search`. Create it in the repo root:
+The repository includes `start-bridge-search.sh` — a thin wrapper that resolves the repo directory dynamically and launches the local venv's Python with `-m bridge_search`. It is tracked as executable; if your checkout loses executable bits, restore them with:
 
 ```bash
-cat > /path/to/windows-search/start-bridge-search.sh << 'SH'
-#!/bin/bash
-exec /path/to/windows-search/.venv/bin/python -m bridge_search
-SH
 chmod +x /path/to/windows-search/start-bridge-search.sh
 ```
 
