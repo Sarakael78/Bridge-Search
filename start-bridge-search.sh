@@ -1,2 +1,3 @@
 #!/bin/bash
-exec /home/david/workspace/skills/windows-search/.venv/bin/python -m bridge_search
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$DIR/.venv/bin/python" -m bridge_search
