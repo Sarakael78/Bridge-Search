@@ -345,6 +345,29 @@ For OpenClaw, manually add `bridge-search` to `alsoAllow` for your agent, then r
 
 Installer note: `setup_skill.py` no longer edits `~/.openclaw/openclaw.json` unless you explicitly pass `--openclaw-allowlist`.
 
+### Hermes Agent (native MCP client)
+
+If you use [Hermes Agent](https://hermes-agent.nousresearch.com), register bridge-search in your `~/.hermes/config.yaml`:
+
+```bash
+hermes config set mcp_servers.bridge-search.command "/path/to/windows-search/start-bridge-search.sh"
+hermes config set mcp_servers.bridge-search.args '[]'
+hermes config set mcp_servers.bridge-search.enabled true
+hermes config set mcp_servers.bridge-search.timeout 30
+```
+
+This requires `start-bridge-search.sh` — a thin wrapper that launches the venv's Python with `-m bridge_search`. Create it in the repo root:
+
+```bash
+cat > /path/to/windows-search/start-bridge-search.sh << 'SH'
+#!/bin/bash
+exec /path/to/windows-search/.venv/bin/python -m bridge_search
+SH
+chmod +x /path/to/windows-search/start-bridge-search.sh
+```
+
+Hermes's native MCP client auto-discovers the server on next session start, injecting the bridge tools (`locate_file_or_folder`, `locate_content_inside_files`, etc.) directly alongside your other tools.
+
 ### Uninstalling
 
 ```bash
