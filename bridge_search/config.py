@@ -141,13 +141,30 @@ def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]
     return out
 
 
+_CONFIG_ENV_VARS: Tuple[str, ...] = (
+    "BRIDGE_SEARCH_CONFIG",
+    "WSL_WINDOWS_SEARCH_BRIDGE_CONFIG",
+    "WSL_BRIDGE_CONFIG",
+)
+
+_CONFIG_FILENAMES: Tuple[str, ...] = (
+    os.path.join("config", "bridge-search.config.json"),
+    "bridge-search.config.json",
+    os.path.join("config", "wsl-windows-search-bridge.config.json"),
+    os.path.join("config", "wsl-bridge.config.json"),
+    "wsl-windows-search-bridge.config.json",
+    "wsl-bridge.config.json",
+)
+
+
 def config_paths() -> List[str]:
-    env = os.environ.get("BRIDGE_SEARCH_CONFIG", "").strip()
-    if env:
-        return [os.path.abspath(env)]
+    for name in _CONFIG_ENV_VARS:
+        env = os.environ.get(name, "").strip()
+        if env:
+            return [os.path.abspath(env)]
     script_dir = os.path.dirname(os.path.abspath(__file__))
     root = os.path.abspath(os.path.join(script_dir, ".."))
-    return [os.path.join(root, "config", "bridge-search.config.json")]
+    return [os.path.join(root, filename) for filename in _CONFIG_FILENAMES]
 
 
 def _load_bridge_config(paths: Tuple[str, ...]) -> Dict[str, Any]:

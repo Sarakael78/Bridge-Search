@@ -191,16 +191,24 @@ def _restricted_prefixes() -> Tuple[str, ...]:
     return _RESTRICTED_DEFAULT
 
 
+_ALLOWED_PREFIX_ENV_VARS: Tuple[str, ...] = (
+    "BRIDGE_SEARCH_ALLOWED_PREFIXES",
+    "WSL_WINDOWS_SEARCH_BRIDGE_ALLOWED_PREFIXES",
+    "WSL_BRIDGE_ALLOWED_PREFIXES",
+)
+
+
 def parse_allowed_prefixes_env() -> Optional[List[str]]:
-    raw = os.environ.get("BRIDGE_SEARCH_ALLOWED_PREFIXES", "").strip()
-    if not raw:
-        return None
     out: List[str] = []
-    for part in _split_prefix_blob(raw):
-        normalized = normalize_policy_prefix(part)
-        if normalized is None:
+    for name in _ALLOWED_PREFIX_ENV_VARS:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
             continue
-        out.append(normalized)
+        for part in _split_prefix_blob(raw):
+            normalized = normalize_policy_prefix(part)
+            if normalized is None:
+                continue
+            out.append(normalized)
     return out if out else None
 
 
