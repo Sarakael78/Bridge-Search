@@ -443,6 +443,30 @@ def test_manage_file_symlink_policy(tmp_path) -> None:
     assert target.exists()
 
 
+def test_manage_file_rechecks_changed_symlink_target_for_policy(monkeypatch, tmp_path) -> None:
+    allowed_dir = tmp_path / "allowed"
+    outside_dir = tmp_path / "outside"
+    allowed_dir.mkdir()
+    outside_dir.mkdir()
+    benign = allowed_dir / "benign.txt"
+    outside = outside_dir / "secret.txt"
+    link = allowed_dir / "link.txt"
+    benign.write_text("benign", encoding="utf-8")
+    outside.write_text("secret", encoding="utf-8")
+    link.symlink_to(benign)
+    monkeypatch.setenv("BRIDGE_SEARCH_ALLOWED_PREFIXES", str(allowed_dir))
+
+    assert path_policy.is_path_allowed(str(link), "wsl") is True
+
+    link.unlink()
+    link.symlink_to(outside)
+
+    assert path_policy.is_path_allowed(str(link), "wsl") is False
+    result = bridge_tools.hybrid_file_io("read", str(link))
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "path_blocked"
+
+
 def test_manage_file_delete_home_directory_blocked(monkeypatch, tmp_path) -> None:
     home = tmp_path / "home"
     home.mkdir()

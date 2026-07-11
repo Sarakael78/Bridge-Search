@@ -35,31 +35,12 @@ _RESTRICTED_MINIMAL: Tuple[str, ...] = (
 _WINDOWS_ABS_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
-_CANONICAL_CACHE: Dict[str, str] = {}
-_CANONICAL_CACHE_MAX = 4096
-_CANONICAL_LOCK = threading.Lock()
-
-
 def canonical_path(path: str) -> str:
-    """Return a normalized real path when possible.
-
-    Successful ``realpath`` results are cached.  When ``realpath`` raises
-    (broken symlink, permission error) the ``normpath`` fallback is returned
-    but *not* cached so a future call can retry after conditions change.
-    """
-    with _CANONICAL_LOCK:
-        cached = _CANONICAL_CACHE.get(path)
-    if cached is not None:
-        return cached
+    """Return a normalized real path when possible."""
     try:
-        result = os.path.realpath(path)
+        return os.path.realpath(path)
     except OSError:
         return os.path.normpath(path)
-    with _CANONICAL_LOCK:
-        if len(_CANONICAL_CACHE) >= _CANONICAL_CACHE_MAX:
-            _CANONICAL_CACHE.clear()
-        _CANONICAL_CACHE[path] = result
-    return result
 
 
 def looks_like_windows_abs_path(path: str) -> bool:
