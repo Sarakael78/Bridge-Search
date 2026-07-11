@@ -79,6 +79,39 @@ def test_custom_restricted_prefixes_support_windows_paths(monkeypatch, tmp_path)
     assert path_policy.is_path_allowed("/mnt/c/Users/david/Public/file.txt", "wsl") is True
 
 
+
+def test_legacy_allowed_prefixes_env_aliases_still_enforce_allowlist(monkeypatch) -> None:
+    monkeypatch.delenv("BRIDGE_SEARCH_ALLOWED_PREFIXES", raising=False)
+    monkeypatch.setenv("WSL_BRIDGE_ALLOWED_PREFIXES", "/tmp/bridge-search-allowed")
+    assert path_policy.allowed_prefixes_merged() == ["/tmp/bridge-search-allowed"]
+    assert path_policy.is_path_allowed("/tmp/bridge-search-allowed/file.txt", "wsl") is True
+    assert path_policy.is_path_allowed("/tmp/bridge-search-outside/file.txt", "wsl") is False
+
+
+def test_legacy_config_env_alias_loads_security_policy(monkeypatch, tmp_path) -> None:
+    config_path = tmp_path / "legacy.json"
+    config_path.write_text(
+        json.dumps({"security": {"allowed_prefixes": [str(tmp_path / "allowed")]}}),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("BRIDGE_SEARCH_CONFIG", raising=False)
+    monkeypatch.setenv("WSL_BRIDGE_CONFIG", str(config_path))
+    bridge_config.get_bridge_config(reload=True)
+    assert path_policy.is_path_allowed(str(tmp_path / "allowed" / "file.txt"), "wsl") is True
+    assert path_policy.is_path_allowed(str(tmp_path / "outside" / "file.txt"), "wsl") is False
+
+
+def test_primary_config_env_takes_precedence_over_legacy_alias(monkeypatch, tmp_path) -> None:
+    primary = tmp_path / "primary.json"
+    legacy = tmp_path / "legacy.json"
+    primary.write_text(json.dumps({"security": {"allowed_prefixes": [str(tmp_path / "primary")]}}), encoding="utf-8")
+    legacy.write_text(json.dumps({"security": {"allowed_prefixes": [str(tmp_path / "legacy")]}}), encoding="utf-8")
+    monkeypatch.setenv("BRIDGE_SEARCH_CONFIG", str(primary))
+    monkeypatch.setenv("WSL_BRIDGE_CONFIG", str(legacy))
+    bridge_config.get_bridge_config(reload=True)
+    assert path_policy.is_path_allowed(str(tmp_path / "primary" / "file.txt"), "wsl") is True
+    assert path_policy.is_path_allowed(str(tmp_path / "legacy" / "file.txt"), "wsl") is False
+
 def test_backend_enabled_env_overrides_config(monkeypatch) -> None:
     monkeypatch.delenv("BRIDGE_SEARCH_ENABLE_EVERYTHING", raising=False)
     cfg = copy.deepcopy(bridge_config._DEFAULTS)
