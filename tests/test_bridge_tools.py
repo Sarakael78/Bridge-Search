@@ -416,13 +416,101 @@ def test_manage_file_copy_requires_explicit_overwrite(tmp_path) -> None:
     assert result["errors"][0]["code"] == "destination_exists"
 
 
+def test_manage_file_move_requires_confirmation(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+
+    result = bridge_tools.hybrid_file_io("move", str(src), destination_path=str(dst))
+
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "write_confirmation_required"
+    assert src.read_text(encoding="utf-8") == "source"
+    assert dst.exists() is False
+
+
+def test_manage_file_move_requires_overwrite_before_confirmation(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+    dst.write_text("dest", encoding="utf-8")
+
+    result = bridge_tools.hybrid_file_io("move", str(src), destination_path=str(dst))
+
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "destination_exists"
+    assert src.read_text(encoding="utf-8") == "source"
+    assert dst.read_text(encoding="utf-8") == "dest"
+
+
+def test_manage_file_copy_overwrite_requires_confirmation(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+    dst.write_text("dest", encoding="utf-8")
+
+    result = bridge_tools.hybrid_file_io("copy", str(src), destination_path=str(dst), overwrite=True)
+
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "write_confirmation_required"
+    assert dst.read_text(encoding="utf-8") == "dest"
+
+
+def test_manage_file_copy_overwrite_flag_requires_confirmation_for_absent_destination(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+
+    result = bridge_tools.hybrid_file_io("copy", str(src), destination_path=str(dst), overwrite=True)
+
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "write_confirmation_required"
+    assert dst.exists() is False
+
+
+def test_manage_file_copy_overwrite_same_path_keeps_specific_error(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    src.write_text("source", encoding="utf-8")
+
+    result = bridge_tools.hybrid_file_io("copy", str(src), destination_path=str(src), overwrite=True)
+
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "same_path"
+
+
 def test_manage_file_copy_and_move_overwrite(tmp_path) -> None:
     src = tmp_path / "src.txt"
     dst = tmp_path / "dst.txt"
     src.write_text("source", encoding="utf-8")
     dst.write_text("dest", encoding="utf-8")
+    copy_result = bridge_tools.hybrid_file_io(
+        "copy", str(src), destination_path=str(dst), overwrite=True, is_confirmed=True
+    )
+    assert copy_result["success"] is True
+    assert dst.read_text(encoding="utf-8") == "source"
+    moved_src = tmp_path / "move.txt"
+    moved_src.write_text("moved", encoding="utf-8")
+    move_result = bridge_tools.hybrid_file_io(
+        "move", str(moved_src), destination_path=str(dst), overwrite=True, is_confirmed=True
+    )
+    assert move_result["success"] is True
+    assert dst.read_text(encoding="utf-8") == "moved"
+
+
+def test_manage_file_confirmation_policy_can_be_disabled(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        file_ops,
+        "get_bridge_config",
+        lambda: {"security": {"require_confirm_for_writes": False}},
+    )
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+    dst.write_text("dest", encoding="utf-8")
+
     copy_result = bridge_tools.hybrid_file_io("copy", str(src), destination_path=str(dst), overwrite=True)
     assert copy_result["success"] is True
+
     moved_src = tmp_path / "move.txt"
     moved_src.write_text("moved", encoding="utf-8")
     move_result = bridge_tools.hybrid_file_io("move", str(moved_src), destination_path=str(dst), overwrite=True)

@@ -134,6 +134,16 @@ def hybrid_file_io(
     if action == Actions.DELETE and not is_confirmed and sec.get("require_confirm_for_deletes", True):
         return error_response(code=ErrorCodes.DELETE_CONFIRMATION_REQUIRED, message="DESTRUCTIVE ACTION BLOCKED. Pass is_confirmed=True to delete.", path=source_path, meta=meta)
 
+    def mutation_confirmation_error() -> Optional[Dict[str, Any]]:
+        if is_confirmed or not sec.get("require_confirm_for_writes", True):
+            return None
+        return error_response(
+            code=ErrorCodes.WRITE_CONFIRMATION_REQUIRED,
+            message="MUTATION BLOCKED. Moves and copy-overwrite operations require is_confirmed=True after reviewing both paths.",
+            path=source_path,
+            meta=meta,
+        )
+
     def validate_existing_source() -> Optional[Dict[str, Any]]:
         if not src:
             return error_response(code=ErrorCodes.SOURCE_REQUIRED, message="Source path required", meta=meta)
@@ -262,6 +272,9 @@ def hybrid_file_io(
             return error_response(code=ErrorCodes.SAME_PATH, message="Source and destination resolve to the same path", path=source_path, meta=meta)
         if destination_inside_source():
             return error_response(code=ErrorCodes.RECURSIVE_DESTINATION, message="Refusing to copy a directory into itself", path=destination_path, meta=meta)
+        confirmation_problem = mutation_confirmation_error() if overwrite else None
+        if confirmation_problem:
+            return confirmation_problem
         if os.path.exists(dst_canon):
             if not overwrite:
                 return error_response(code=ErrorCodes.DESTINATION_EXISTS, message="Destination already exists. Pass overwrite=True to replace it.", path=destination_path, meta=meta)
@@ -288,9 +301,13 @@ def hybrid_file_io(
             return error_response(code=ErrorCodes.SAME_PATH, message="Source and destination resolve to the same path", path=source_path, meta=meta)
         if destination_inside_source():
             return error_response(code=ErrorCodes.RECURSIVE_DESTINATION, message="Refusing to move a directory into itself", path=destination_path, meta=meta)
-        if os.path.exists(dst_canon):
-            if not overwrite:
-                return error_response(code=ErrorCodes.DESTINATION_EXISTS, message="Destination already exists. Pass overwrite=True to replace it.", path=destination_path, meta=meta)
+        destination_exists = os.path.exists(dst_canon)
+        if destination_exists and not overwrite:
+            return error_response(code=ErrorCodes.DESTINATION_EXISTS, message="Destination already exists. Pass overwrite=True to replace it.", path=destination_path, meta=meta)
+        confirmation_problem = mutation_confirmation_error()
+        if confirmation_problem:
+            return confirmation_problem
+        if destination_exists:
             try:
                 safe_remove(dst_canon)
             except OSError as exc:
