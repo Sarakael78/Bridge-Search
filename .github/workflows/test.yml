@@ -17,7 +17,9 @@ jobs:
         python-version: "3.12"
     - name: Lint with ruff
       run: |
-        pip install ruff
+        # Keep CI reproducible: Ruff 0.16 enabled new rules across the existing
+        # codebase and turned unchanged master into hundreds of failures.
+        pip install ruff==0.15.22
         ruff check bridge_search/ scripts/ tests/
     - name: Type check with mypy
       run: |
