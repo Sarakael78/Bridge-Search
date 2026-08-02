@@ -872,6 +872,19 @@ def test_anytxt_wt_driver_queries_default_drive_option_once(monkeypatch) -> None
     assert b"drive=&" in search_posts[0].data
 
 
+def test_anytxt_wt_escaped_windows_paths_do_not_decode_control_characters() -> None:
+    synthetic = r'''
+    <button title="Click to view file text content">
+      <a href="#" class="pe-none">hardcorenas.py</a>
+    </button>
+    <div><div>matched text</div></div>
+    <div><div><font color="green">C:\\Users\\Example\\site-packages\\timm\\rules\\nested\\hardcorenas.py</font></div></div>
+    '''
+    hits = search_backends._extract_anytxt_wt_results(synthetic)
+    assert hits[0]["raw_path"] == r"C:\Users\Example\site-packages\timm\rules\nested\hardcorenas.py"
+    assert not any(character in hits[0]["raw_path"] for character in "\t\r\n")
+
+
 def test_anytxt_wt_no_files_response_is_clean_zero_hits() -> None:
     fixture = Path(__file__).parent / "fixtures" / "anytxt_wt" / "live_vat201_no_files_response.js"
     assert search_backends._extract_anytxt_wt_results(fixture.read_text(encoding="utf-8")) == []
