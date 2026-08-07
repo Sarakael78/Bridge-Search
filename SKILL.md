@@ -91,6 +91,14 @@ Use this skill to set up and run the MCP bridge: implementation lives in **`brid
 - `references/anytxt-endpoint-runtime-discovery.md`: last-known-good endpoint persistence and rediscovery notes.
 - `references/anytxt-path-prefix-proxy.md`: mounted-path AnyTXT proxy pattern, verification checklist, and pitfalls.
 
+## AnyTXT helper examples
+
+- OCR a single image:
+  - call `anytxt_ocr` with a file path such as `C:\Users\david\Pictures\scan.png` or `/mnt/c/Users/david/Pictures/scan.png`
+- Refresh a folder index:
+  - call `anytxt_sync_index` with a folder path such as `C:\Users\david\Documents` or `/mnt/c/Users/david/Documents`
+- Treat both helpers as explicit maintenance actions, not as search probes.
+
 ## When details matter
 
 Use **`README.md`** for install, troubleshooting, and security. Implementation details live in the **`bridge_search/`** package (the authoritative source): `server.py`, `search_backends.py`, `file_ops.py`, `path_policy.py`, `config.py`, and `result_models.py`. The `scripts/` directory contains compatibility wrappers and the installer.

@@ -64,23 +64,6 @@ The clone directory name must be **`windows-search`** for the agent to correctly
 
 `install.sh` forwards extra flags to `scripts/setup_skill.py` and defaults to `--venv` (for example: `./install.sh --skip-checks` or `./install.sh --dev`).
 
-### Existing installs / upgrading
-
-If you already have Bridge Search installed, update the repo and rerun setup so the MCP registration, dependencies, runtime config, and health checks are refreshed:
-
-```bash
-cd /path/to/windows-search
-git pull
-./install.sh
-# then restart your MCP host / agent gateway if it is already running
-```
-
-During setup, Bridge Search will probe the configured AnyTXT endpoint. If that endpoint no longer works, it will scan common WSL/Windows host endpoints, persist the working URL to `config/bridge-search.config.json`, and rerun health checks. If your AnyTXT service is reachable but not verified, run:
-
-```bash
-python3 scripts/rediscover_anytxt_endpoint.py --verify-search
-```
-
 ### 4. MCP client (`mcporter`) on WSL
 
 The bridge exposes MCP over stdio. **`setup_skill.py`** can register it; otherwise you need **[mcporter](https://github.com/steipete/mcporter)** (or another MCP host that launches `scripts/server.py`, or `python3 -m bridge_search` when the `bridge_search` package is on `PYTHONPATH` / installed editable from this repo). Install Node.js, then:
@@ -128,9 +111,19 @@ sequenceDiagram
 
 - **`locate_file_or_folder`:** Instantly finds files by name. Uses `es.exe` on Windows (`target_env=windows`). Use `everywhere` to combine with WSL `locate` (daily-refreshed DB, non-blocking refresh) and optional WSL `find` under `$HOME`.
 - **`locate_content_inside_files`**: Instantly searches inside documents (PDFs, Word, text). Uses AnyTXT's HTTP API on Windows and `grep` when targeting WSL paths. Includes automatic host-IP discovery for WSL2.
+- **`anytxt_ocr`**: Runs AnyTXT OCR for a single image file via the JSON-RPC helper path.
+- **`anytxt_sync_index`**: Triggers AnyTXT folder sync/index refresh via the JSON-RPC helper path.
 - **`map_directory`**: Generates hierarchical, paginated directory maps to understand project structures.
 - **`get_health`**: Diagnoses the status of all search backends (Everything, AnyTXT, WSL locate/find/grep) and connectivity.
 - **`manage_file`**: Safely read, write, move, or delete files across the OS boundary with automatic path translation and policy checks.
+
+### AnyTXT helper examples
+
+- OCR a single image:
+  - call `anytxt_ocr` with a file path such as `C:\Users\david\Pictures\scan.png` or `/mnt/c/Users/david/Pictures/scan.png`
+- Refresh a folder index:
+  - call `anytxt_sync_index` with a folder path such as `C:\Users\david\Documents` or `/mnt/c/Users/david/Documents`
+- Both helpers use the same endpoint discovery and error handling as `locate_content_inside_files`, so you can treat them as explicit maintenance tools rather than search probes.
 
 
 ### `manage_file` safety rules
@@ -269,7 +262,7 @@ Important:
 
 ## 🚑 Troubleshooting
 
-- **AnyTXT connection errors/timeouts:** **Bridge Search** includes **automatic WSL2 host discovery**. It tries `127.0.0.1` and then your host IP from `/etc/resolv.conf`. If the Windows UI advertises `http://bde:9921/` but WSL resolves `bde` to `127.0.1.1`, set `BRIDGE_SEARCH_ANYTXT_URL` to the actual host IP (for example `http://<wsl-default-gateway>:9921`) instead of relying on the hostname. Use the **`get_health`** tool to diagnose exactly which URL failed. Keep the resolved endpoint in `config/bridge-search.config.json` as the last-known-good value so future sessions do not lose it, and refresh that value if the listener moves. Ensure AnyTXT Searcher → Tool → HTTP Search Service is enabled; Bridge Search talks to the Wt HTML search UI on the configured HTTP port, not a CLI binary or the older sample JSON-RPC snippets.
+- **AnyTXT connection errors/timeouts:** **Bridge Search** includes **automatic WSL2 host discovery**. It tries `127.0.0.1` and then your host IP from `/etc/resolv.conf`. If the Windows UI advertises `http://bde:9921/` but WSL resolves `bde` to `127.0.1.1`, set `BRIDGE_SEARCH_ANYTXT_URL` to the actual host IP (for example `http://172.27.96.1:9921`) instead of relying on the hostname. Use the **`get_health`** tool to diagnose exactly which URL failed. Keep the resolved endpoint in `config/bridge-search.config.json` as the last-known-good value so future sessions do not lose it, and refresh that value if the listener moves. Ensure AnyTXT Searcher → Tool → HTTP Search Service is enabled; Bridge Search talks to the Wt HTML search UI on the configured HTTP port, not a CLI binary or the older sample JSON-RPC snippets.
 - **`get_health` reports AnyTXT failures:** Health probes hit the same runtime HTTP API endpoint for configured and fallback URLs; a working base UI URL alone is not sufficient.
 - **Everything returns "es.exe not found":** Install the **Everything CLI** from [Voidtools downloads](https://www.voidtools.com/downloads/) if you only installed the GUI. Ensure the background service is running and `es.exe` is on Windows `PATH` (or under `C:\Program Files\Everything\`). Run **`get_health`** to confirm detection.
 - **`mcporter: command not found`:** Node.js or `mcporter` is missing. Install via npm: `npm install -g @steipete/mcporter`.
@@ -289,7 +282,7 @@ We provide templates in the `config/` directory for common setups:
 ### Configuration reference
 
 #### Config structure
-- `service.anytxt_url` (default `http://127.0.0.1:9920`, or the service URL from your install). Used by AnyTXT HTTP tool calls.
+- `service.anytxt_url` (default `http://172.27.96.1:9921` on this machine; otherwise `http://127.0.0.1:9920` or the service URL from your install). Used by AnyTXT HTTP tool calls.
 - `security.path_denylist` (`default`, `minimal`, `custom`, `none`) controls the denylist applied to search paths and file operations.
 - `security.custom_restricted_prefixes` + `security.allowed_prefixes` override the deny/allow lists you see in `path_policy.py`. Use absolute WSL paths or Windows-style `C:\...` paths; Windows entries are normalized into WSL form before policy checks. If you are explicitly allowlisting drive roots, include the roots you want searchable, for example `D:\`, `E:\`, `F:\`, and `X:\` (or the equivalent `/mnt/d`, `/mnt/e`, `/mnt/f`, `/mnt/x` paths).
 - `security.allow_grep_from_filesystem_root` & `security.allow_wsl_locator_from_filesystem_root` gate root-level scans.
@@ -322,7 +315,7 @@ Example configs now also expose:
 
 **AnyTXT HTTP URL:** By default, the bridge uses `http://127.0.0.1:9920`. Update this via the `--anytxt-url` flag during setup, by editing `config/bridge-search.config.json` (`service.anytxt_url`), or by setting `BRIDGE_SEARCH_ANYTXT_URL`.
 
-**Installer note:** `setup_skill.py` persists the AnyTXT runtime URL into `config/bridge-search.config.json`, replaces an existing `bridge-search` mcporter entry instead of failing outright, and now attempts AnyTXT endpoint rediscovery automatically when the configured endpoint fails health checks.
+**Installer note:** `setup_skill.py` persists the AnyTXT runtime URL into `config/bridge-search.config.json`, and if a `bridge-search` mcporter entry already exists it will replace it instead of failing outright.
 
 ### Manual MCP Registration
 

@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional
 
 from mcp.server.fastmcp import FastMCP
 
-from .bridge_tools import catalog_directory, content_locator, hybrid_file_io, system_locator
+from .bridge_tools import anytxt_ocr as bridge_anytxt_ocr, anytxt_sync_index as bridge_anytxt_sync_index, catalog_directory, content_locator, hybrid_file_io, system_locator
 from .health import check_health
 from .result_models import success_response
 
@@ -116,6 +116,24 @@ def locate_content_inside_files(
     is_confirmed on other tools is a workflow flag for the agent, not cryptographic authorization or a substitute for OS-level approval.
     """
     return content_locator(query, target_env, wsl_search_path, limit, offset)
+
+
+@mcp.tool()
+def anytxt_ocr(file_path: str) -> Dict[str, Any]:
+    """
+    Run AnyTXT OCR for a single image file via the JSON-RPC helper path.
+    Returns the standard bridge response shape: success, results, errors, warnings, meta.
+    """
+    return bridge_anytxt_ocr(file_path)
+
+
+@mcp.tool()
+def anytxt_sync_index(folder: str) -> Dict[str, Any]:
+    """
+    Ask AnyTXT to sync a folder into its index via the JSON-RPC helper path.
+    Returns the standard bridge response shape: success, results, errors, warnings, meta.
+    """
+    return bridge_anytxt_sync_index(folder)
 
 
 if __name__ == "__main__":
