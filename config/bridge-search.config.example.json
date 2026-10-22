@@ -1,6 +1,6 @@
 {
   "_security_warning": "Copy to config/bridge-search.config.json (or set BRIDGE_SEARCH_CONFIG). Keys starting with _ are ignored. Tighten security before relaxing anything.",
-  "_write_note": "manage_file(write) now replaces by default. Use write_mode='append' per request when you explicitly want append semantics.",
+  "_write_note": "manage_file(write) replaces by default. Writes, moves, and copy requests carrying overwrite=true use require_confirm_for_writes; use write_mode='append' only when explicitly intended.",
   "version": 1,
   "service": {
     "anytxt_url": "http://127.0.0.1:9920"
