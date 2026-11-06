@@ -89,7 +89,7 @@ Everything is the preferred Windows filename backend.
 
 ### Windows content search: AnyTXT
 
-AnyTXT is accessed over HTTP via its Search Service / JSON-RPC API endpoint (default the service root on port 9920).
+AnyTXT is accessed over HTTP via its Search Service / JSON-RPC API endpoint (default the service root on port 9920). The preferred path is JSON-RPC first: `Search`/`GetResult` for compatibility probes and matching files, `GetFragment`/`GetFragmentAll` for snippet hydration, and `OCR`/`SyncIndex` when those maintenance actions are needed. Bridge Search exposes OCR and SyncIndex as explicit MCP helper tools too (`anytxt_ocr`, `anytxt_sync_index`). When the JSON endpoint is unavailable, Bridge Search falls back to the live Wt HTML search surface.
 
 - Runtime endpoint comes from config or `BRIDGE_SEARCH_ANYTXT_URL`; non-private hosts and unexpected URL schemes log warnings to stderr (operator override).
 - Response size is capped.

@@ -36,6 +36,7 @@ _DEFAULTS: Dict[str, Any] = {
         "max_delete_entries": 1000,
     },
     "backends": {"everything": True, "anytxt": True, "wsl_locate": True, "wsl_find": True, "wsl_grep": True},
+    "knowledge_roots": {},
 }
 
 _BACKEND_ENV = {

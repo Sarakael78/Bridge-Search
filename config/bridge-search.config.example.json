@@ -29,7 +29,7 @@
     "everything": true,
     "anytxt": true,
     "wsl_locate": true,
-    "wsl_find": true,
-    "wsl_grep": true
+    "wsl_find": false,
+    "wsl_grep": false
   }
 }

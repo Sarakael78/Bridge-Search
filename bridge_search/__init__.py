@@ -1,4 +1,6 @@
 from .bridge_tools import (
+    anytxt_ocr,
+    anytxt_sync_index,
     catalog_directory,
     content_locator,
     hybrid_file_io,
@@ -8,6 +10,8 @@ from .config import get_bridge_config
 from .path_policy import is_path_allowed, resolve_path
 
 __all__ = [
+    "anytxt_ocr",
+    "anytxt_sync_index",
     "catalog_directory",
     "content_locator",
     "hybrid_file_io",

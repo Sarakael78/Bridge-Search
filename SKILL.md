@@ -15,6 +15,7 @@ Use this skill to set up and run the MCP bridge: implementation lives in **`brid
 - `scripts/server.py`: compatibility wrapper that adds the repo root to `sys.path` then runs `bridge_search.server`.
 - `scripts/rediscover_anytxt_endpoint.py`: standalone runtime discovery command that probes candidate AnyTXT URLs, persists the working endpoint, and prints a concise report.
 - `bridge_search/__main__.py`: same MCP stdio entry as the server when run as `python -m bridge_search` (requires package import path).
+- `bridge_search/knowledge_search.py`: optional read-only Markdown search within a configured root, with file provenance and coverage metadata.
 - `config/bridge-search.config.example.json`: optional JSON policy (copy to `config/bridge-search.config.json`; `BRIDGE_SEARCH_CONFIG` can point elsewhere — see README). Profile examples: **`config/bridge-search.config.everything-only.example.json`**, **`config/bridge-search.config.anytxt-only.example.json`**, **`config/bridge-search.config.everything-and-anytxt.example.json`**. Use **`backends`** for other combinations (e.g. WSL-only).
 - `references/install-registration.md`: concise install/registration notes, including the `mcporter` package-name gotcha and verification steps.
 - `references/repo-discovery-audio-stem-separation.md`: session notes on finding and validating an audio stem-separation repo across Windows and GitHub.
@@ -49,6 +50,7 @@ Use this skill to set up and run the MCP bridge: implementation lives in **`brid
 - **`map_directory`**: get scoped structure before broad file operations or when you need pagination through a tree.
 - **`manage_file`**: read, write, copy, move, delete, and mkdir with policy checks and explicit mutation semantics.
 - **`get_health`**: diagnose backend reachability before inventing workarounds. Successful probes should refresh the last-known-good AnyTXT URL in config.
+- **`search_knowledge_base`**: search one explicitly configured Markdown root. Check `has_more`, `total_found_exact`, unreadable-file and enumeration-error counts before making a coverage claim. Open the original file for current-state reliance. Do not add a root or relax path policy merely to obtain a hit.
 
 ## Guardrails
 
@@ -90,6 +92,14 @@ Use this skill to set up and run the MCP bridge: implementation lives in **`brid
 - `references/anytxt-http-api-notes.md`: HTTP API/probe caveat and filename-vs-content search distinction.
 - `references/anytxt-endpoint-runtime-discovery.md`: last-known-good endpoint persistence and rediscovery notes.
 - `references/anytxt-path-prefix-proxy.md`: mounted-path AnyTXT proxy pattern, verification checklist, and pitfalls.
+
+## AnyTXT helper examples
+
+- OCR a single image:
+  - call `anytxt_ocr` with a file path such as `C:\Users\david\Pictures\scan.png` or `/mnt/c/Users/david/Pictures/scan.png`
+- Refresh a folder index:
+  - call `anytxt_sync_index` with a folder path such as `C:\Users\david\Documents` or `/mnt/c/Users/david/Documents`
+- Treat both helpers as explicit maintenance actions, not as search probes.
 
 ## When details matter
 
