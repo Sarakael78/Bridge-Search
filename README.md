@@ -115,6 +115,7 @@ sequenceDiagram
 - **`anytxt_sync_index`**: Triggers AnyTXT folder sync/index refresh via the JSON-RPC helper path.
 - **`map_directory`**: Generates hierarchical, paginated directory maps to understand project structures.
 - **`get_health`**: Diagnoses the status of all search backends (Everything, AnyTXT, WSL locate/find/grep) and connectivity.
+- **`search_knowledge_base`**: Searches one configured, read-only Markdown root with file provenance and explicit coverage limits.
 - **`manage_file`**: Safely read, write, move, or delete files across the OS boundary with automatic path translation and policy checks.
 
 ### AnyTXT helper examples
@@ -145,7 +146,7 @@ sequenceDiagram
 
 ### Unified response contract
 
-All five tools return the same top-level payload shape:
+Search and file-operation responses use this top-level payload shape:
 
 - `success`
 - `results`
@@ -260,6 +261,25 @@ Important:
   - `is_confirmed=True` is required for mutations when confirmations are enabled.
   - `write_mode` defaults to `replace`; pass `append` when you explicitly want append semantics.
 
+### Read-only approved knowledge
+
+The optional MCP tool `search_knowledge_base(query, knowledge_root="hermes_agent_brain", limit=20)` searches UTF-8 Markdown inside one explicitly configured root. No root is enabled by default. Add a `knowledge_roots` entry to an operator-owned configuration, for example:
+
+```json
+{
+  "knowledge_roots": {
+    "hermes_agent_brain": {
+      "path": "/absolute/approved-markdown-root",
+      "classification": "internal-derivative"
+    }
+  }
+}
+```
+
+The root and each returned file must pass the existing path policy. Hidden entries, non-Markdown files and symlinked files are excluded. Hits include their path, line, excerpt, file hash and modification time. The tool performs no writes.
+
+The search checks for one additional match beyond the requested limit. `returned_count` describes the rows returned; `total_found` is the observed match count. `total_found_exact` is false, and `total_found_is_lower_bound` is true, after a result cap, unreadable file or directory-enumeration error. Check `has_more`, `unreadable_files`, `enumeration_errors` and `blocked_files` before interpreting coverage.
+
 ## 🚑 Troubleshooting
 
 - **AnyTXT connection errors/timeouts:** **Bridge Search** includes **automatic WSL2 host discovery**. It tries `127.0.0.1` and then your host IP from `/etc/resolv.conf`. If the Windows UI advertises `http://bde:9921/` but WSL resolves `bde` to `127.0.1.1`, set `BRIDGE_SEARCH_ANYTXT_URL` to the actual host IP (for example `http://172.27.96.1:9921`) instead of relying on the hostname. Use the **`get_health`** tool to diagnose exactly which URL failed. Keep the resolved endpoint in `config/bridge-search.config.json` as the last-known-good value so future sessions do not lose it, and refresh that value if the listener moves. Ensure AnyTXT Searcher → Tool → HTTP Search Service is enabled; Bridge Search talks to the Wt HTML search UI on the configured HTTP port, not a CLI binary or the older sample JSON-RPC snippets.
@@ -295,7 +315,8 @@ We provide templates in the `config/` directory for common setups:
   - `command_timeout_seconds` is the default timeout for `es.exe`, `grep`, `wslpath`, and HTTP calls.
   - `max_read_bytes` is the soft limit for `manage_file(read)` before a truncation warning (default 1 048 576 bytes).
   - `max_delete_entries` is the top-level entry count above which `manage_file(delete)` emits a warning about large directory removal (default 1000).
-- `backends.everything`, `.anytxt`, `.wsl_locate`, `.wsl_find`, and `.wsl_grep` enable or disable each search backend.
+- `backends.everything`, `.anytxt`, `.wsl_locate`, `.wsl_find`, and `.wsl_grep` enable or disable each search backend. The example configuration disables `wsl_find` and `wsl_grep` to avoid slow scans of deep WSL trees; enable them only for an intended bounded scope.
+
 - WSL locate database path defaults to `~/.cache/bridge-search/wsl-locate.db` and refreshes at most once every 24 hours via a non-blocking background job; stale cache rows can still be returned immediately while refresh runs.
 
 #### Environment overrides
