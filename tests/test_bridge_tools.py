@@ -88,6 +88,28 @@ def test_legacy_allowed_prefixes_env_aliases_still_enforce_allowlist(monkeypatch
     assert path_policy.is_path_allowed("/tmp/bridge-search-outside/file.txt", "wsl") is False
 
 
+def test_primary_allowed_prefixes_env_takes_precedence_over_legacy_alias(monkeypatch) -> None:
+    monkeypatch.setenv("BRIDGE_SEARCH_ALLOWED_PREFIXES", "/tmp/bridge-search-primary")
+    monkeypatch.setenv("WSL_BRIDGE_ALLOWED_PREFIXES", "/tmp")
+    assert path_policy.allowed_prefixes_merged() == ["/tmp/bridge-search-primary"]
+    assert path_policy.is_path_allowed("/tmp/bridge-search-primary/file.txt", "wsl") is True
+    assert path_policy.is_path_allowed("/tmp/bridge-search-outside/file.txt", "wsl") is False
+
+
+def test_config_allowed_prefixes_take_precedence_over_env_aliases(monkeypatch, tmp_path) -> None:
+    config_path = tmp_path / "bridge-search.config.json"
+    allowed = tmp_path / "allowed"
+    config_path.write_text(
+        json.dumps({"security": {"allowed_prefixes": [str(allowed)]}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BRIDGE_SEARCH_CONFIG", str(config_path))
+    monkeypatch.setenv("WSL_BRIDGE_ALLOWED_PREFIXES", str(tmp_path))
+    bridge_config.get_bridge_config(reload=True)
+    assert path_policy.allowed_prefixes_merged() == [str(allowed)]
+    assert path_policy.is_path_allowed(str(allowed / "file.txt"), "wsl") is True
+    assert path_policy.is_path_allowed(str(tmp_path / "outside" / "file.txt"), "wsl") is False
+
 def test_legacy_config_env_alias_loads_security_policy(monkeypatch, tmp_path) -> None:
     config_path = tmp_path / "legacy.json"
     config_path.write_text(
@@ -958,6 +980,19 @@ def test_anytxt_wt_driver_queries_default_drive_option_once(monkeypatch) -> None
     search_posts = [req for req in requests if getattr(req, "data", None) and b"request=jsupdate" in req.data]
     assert len(search_posts) == 1
     assert b"drive=&" in search_posts[0].data
+
+
+def test_anytxt_wt_escaped_windows_paths_do_not_decode_control_characters() -> None:
+    synthetic = r'''
+    <button title="Click to view file text content">
+      <a href="#" class="pe-none">hardcorenas.py</a>
+    </button>
+    <div><div>matched text</div></div>
+    <div><div><font color="green">C:\\Users\\Example\\site-packages\\timm\\rules\\nested\\hardcorenas.py</font></div></div>
+    '''
+    hits = search_backends._extract_anytxt_wt_results(synthetic)
+    assert hits[0]["raw_path"] == r"C:\Users\Example\site-packages\timm\rules\nested\hardcorenas.py"
+    assert not any(character in hits[0]["raw_path"] for character in "\t\r\n")
 
 
 def test_anytxt_wt_no_files_response_is_clean_zero_hits() -> None:
