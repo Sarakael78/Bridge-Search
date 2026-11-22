@@ -12,6 +12,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - WSL `locate` filename backend with a Bridge Search-managed database (`~/.cache/bridge-search/wsl-locate.db`) that auto-refreshes once every 24 hours.
 - Non-blocking stale-DB behavior for WSL locate: searches serve cached rows immediately and schedule refresh in the background.
 
+### Changed
+
+- Require confirmation for move and copy-overwrite operations under the existing write-confirmation policy.
+- Declare read-only `contents` permission for CI jobs.
+- Align package metadata with the documented `0.2.1` release line.
+
+### Security
+
+- Upgrade the MCP Python SDK to `1.30.0` and use the same dependency pin when setup falls back to package metadata.
+
 ## [0.2.1] - 2026-04-13
 
 ### Changed

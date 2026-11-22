@@ -42,7 +42,7 @@ def manage_file(
     Returns the standard bridge response shape: success, results, errors, warnings, meta.
     is_confirmed is a workflow flag for the agent, not cryptographic proof of human approval.
     write_mode controls write semantics explicitly: replace or append.
-    Writes and deletes require is_confirmed=True after path review.
+    Writes, moves, deletes, and copy requests carrying overwrite=True require is_confirmed=True after path review.
     """
     return hybrid_file_io(
         action,
