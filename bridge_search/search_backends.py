@@ -206,15 +206,21 @@ def _extract_anytxt_wt_page_id(page_html: str) -> str:
 
 
 def _normalise_anytxt_wt_markup(page_html: str) -> str:
-    """Make Wt JavaScript string fragments parseable as ordinary HTML-ish text."""
+    """Make Wt JavaScript string fragments parseable without corrupting Windows paths."""
+    # Wt embeds HTML in JavaScript strings. Protect escaped Windows path
+    # separators before decoding JavaScript whitespace escapes; otherwise a
+    # segment such as ``\\timm`` becomes a tab and ``\\rules`` a carriage return.
+    escaped_backslash = "\ue000BRIDGE_SEARCH_BACKSLASH\ue001"
     return (
         page_html
+        .replace(r"\\", escaped_backslash)
         .replace(r"\r", "\r")
         .replace(r"\n", "\n")
         .replace(r"\t", "\t")
         .replace(r"\"", '"')
         .replace(r"\'", "'")
         .replace(r"\/", "/")
+        .replace(escaped_backslash, "\\")
     )
 
 
