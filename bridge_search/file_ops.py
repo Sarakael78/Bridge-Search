@@ -141,6 +141,7 @@ def hybrid_file_io(
             code=ErrorCodes.WRITE_CONFIRMATION_REQUIRED,
             message="MUTATION BLOCKED. Moves and copy-overwrite operations require is_confirmed=True after reviewing both paths.",
             path=source_path,
+            details={"source_path": source_path, "destination_path": destination_path},
             meta=meta,
         )
 

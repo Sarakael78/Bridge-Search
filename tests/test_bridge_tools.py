@@ -447,8 +447,14 @@ def test_manage_file_move_requires_confirmation(tmp_path) -> None:
 
     assert result["success"] is False
     assert result["errors"][0]["code"] == "write_confirmation_required"
+    assert result["errors"][0]["details"] == {"source_path": str(src), "destination_path": str(dst)}
     assert src.read_text(encoding="utf-8") == "source"
     assert dst.exists() is False
+
+    confirmed = bridge_tools.hybrid_file_io("move", str(src), destination_path=str(dst), is_confirmed=True)
+    assert confirmed["success"] is True
+    assert src.exists() is False
+    assert dst.read_text(encoding="utf-8") == "source"
 
 
 def test_manage_file_move_requires_overwrite_before_confirmation(tmp_path) -> None:
@@ -475,6 +481,7 @@ def test_manage_file_copy_overwrite_requires_confirmation(tmp_path) -> None:
 
     assert result["success"] is False
     assert result["errors"][0]["code"] == "write_confirmation_required"
+    assert result["errors"][0]["details"] == {"source_path": str(src), "destination_path": str(dst)}
     assert dst.read_text(encoding="utf-8") == "dest"
 
 

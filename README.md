@@ -265,6 +265,7 @@ Important:
 - `manage_file(action, source_path, destination_path=None, content=None, target_env="wsl", overwrite=False, is_confirmed=False, write_mode="replace")` – Guarded reads/writes.
   - `action` = `read|write|copy|move|delete|mkdir`.
   - `is_confirmed=True` is required for writes, moves, deletes, and copy requests carrying `overwrite=True` when confirmations are enabled.
+  - Moves and copy-overwrite requests that require confirmation return both paths in the error's `details` for review.
   - `write_mode` defaults to `replace`; pass `append` when you explicitly want append semantics.
 
 ## 🚑 Troubleshooting
