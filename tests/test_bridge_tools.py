@@ -88,6 +88,28 @@ def test_legacy_allowed_prefixes_env_aliases_still_enforce_allowlist(monkeypatch
     assert path_policy.is_path_allowed("/tmp/bridge-search-outside/file.txt", "wsl") is False
 
 
+def test_primary_allowed_prefixes_env_takes_precedence_over_legacy_alias(monkeypatch) -> None:
+    monkeypatch.setenv("BRIDGE_SEARCH_ALLOWED_PREFIXES", "/tmp/bridge-search-primary")
+    monkeypatch.setenv("WSL_BRIDGE_ALLOWED_PREFIXES", "/tmp")
+    assert path_policy.allowed_prefixes_merged() == ["/tmp/bridge-search-primary"]
+    assert path_policy.is_path_allowed("/tmp/bridge-search-primary/file.txt", "wsl") is True
+    assert path_policy.is_path_allowed("/tmp/bridge-search-outside/file.txt", "wsl") is False
+
+
+def test_config_allowed_prefixes_take_precedence_over_env_aliases(monkeypatch, tmp_path) -> None:
+    config_path = tmp_path / "bridge-search.config.json"
+    allowed = tmp_path / "allowed"
+    config_path.write_text(
+        json.dumps({"security": {"allowed_prefixes": [str(allowed)]}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BRIDGE_SEARCH_CONFIG", str(config_path))
+    monkeypatch.setenv("WSL_BRIDGE_ALLOWED_PREFIXES", str(tmp_path))
+    bridge_config.get_bridge_config(reload=True)
+    assert path_policy.allowed_prefixes_merged() == [str(allowed)]
+    assert path_policy.is_path_allowed(str(allowed / "file.txt"), "wsl") is True
+    assert path_policy.is_path_allowed(str(tmp_path / "outside" / "file.txt"), "wsl") is False
+
 def test_legacy_config_env_alias_loads_security_policy(monkeypatch, tmp_path) -> None:
     config_path = tmp_path / "legacy.json"
     config_path.write_text(
@@ -416,13 +438,108 @@ def test_manage_file_copy_requires_explicit_overwrite(tmp_path) -> None:
     assert result["errors"][0]["code"] == "destination_exists"
 
 
+def test_manage_file_move_requires_confirmation(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+
+    result = bridge_tools.hybrid_file_io("move", str(src), destination_path=str(dst))
+
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "write_confirmation_required"
+    assert result["errors"][0]["details"] == {"source_path": str(src), "destination_path": str(dst)}
+    assert src.read_text(encoding="utf-8") == "source"
+    assert dst.exists() is False
+
+    confirmed = bridge_tools.hybrid_file_io("move", str(src), destination_path=str(dst), is_confirmed=True)
+    assert confirmed["success"] is True
+    assert src.exists() is False
+    assert dst.read_text(encoding="utf-8") == "source"
+
+
+def test_manage_file_move_requires_overwrite_before_confirmation(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+    dst.write_text("dest", encoding="utf-8")
+
+    result = bridge_tools.hybrid_file_io("move", str(src), destination_path=str(dst))
+
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "destination_exists"
+    assert src.read_text(encoding="utf-8") == "source"
+    assert dst.read_text(encoding="utf-8") == "dest"
+
+
+def test_manage_file_copy_overwrite_requires_confirmation(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+    dst.write_text("dest", encoding="utf-8")
+
+    result = bridge_tools.hybrid_file_io("copy", str(src), destination_path=str(dst), overwrite=True)
+
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "write_confirmation_required"
+    assert result["errors"][0]["details"] == {"source_path": str(src), "destination_path": str(dst)}
+    assert dst.read_text(encoding="utf-8") == "dest"
+
+
+def test_manage_file_copy_overwrite_flag_requires_confirmation_for_absent_destination(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+
+    result = bridge_tools.hybrid_file_io("copy", str(src), destination_path=str(dst), overwrite=True)
+
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "write_confirmation_required"
+    assert dst.exists() is False
+
+
+def test_manage_file_copy_overwrite_same_path_keeps_specific_error(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    src.write_text("source", encoding="utf-8")
+
+    result = bridge_tools.hybrid_file_io("copy", str(src), destination_path=str(src), overwrite=True)
+
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "same_path"
+
+
 def test_manage_file_copy_and_move_overwrite(tmp_path) -> None:
     src = tmp_path / "src.txt"
     dst = tmp_path / "dst.txt"
     src.write_text("source", encoding="utf-8")
     dst.write_text("dest", encoding="utf-8")
+    copy_result = bridge_tools.hybrid_file_io(
+        "copy", str(src), destination_path=str(dst), overwrite=True, is_confirmed=True
+    )
+    assert copy_result["success"] is True
+    assert dst.read_text(encoding="utf-8") == "source"
+    moved_src = tmp_path / "move.txt"
+    moved_src.write_text("moved", encoding="utf-8")
+    move_result = bridge_tools.hybrid_file_io(
+        "move", str(moved_src), destination_path=str(dst), overwrite=True, is_confirmed=True
+    )
+    assert move_result["success"] is True
+    assert dst.read_text(encoding="utf-8") == "moved"
+
+
+def test_manage_file_confirmation_policy_can_be_disabled(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        file_ops,
+        "get_bridge_config",
+        lambda: {"security": {"require_confirm_for_writes": False}},
+    )
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+    dst.write_text("dest", encoding="utf-8")
+
     copy_result = bridge_tools.hybrid_file_io("copy", str(src), destination_path=str(dst), overwrite=True)
     assert copy_result["success"] is True
+
     moved_src = tmp_path / "move.txt"
     moved_src.write_text("moved", encoding="utf-8")
     move_result = bridge_tools.hybrid_file_io("move", str(moved_src), destination_path=str(dst), overwrite=True)

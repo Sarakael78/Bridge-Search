@@ -180,17 +180,18 @@ _ALLOWED_PREFIX_ENV_VARS: Tuple[str, ...] = (
 
 
 def parse_allowed_prefixes_env() -> Optional[List[str]]:
-    out: List[str] = []
     for name in _ALLOWED_PREFIX_ENV_VARS:
         raw = os.environ.get(name, "").strip()
         if not raw:
             continue
+        out: List[str] = []
         for part in _split_prefix_blob(raw):
             normalized = normalize_policy_prefix(part)
             if normalized is None:
                 continue
             out.append(normalized)
-    return out if out else None
+        return out if out else None
+    return None
 
 
 def allowed_prefixes_merged() -> Optional[List[str]]:
@@ -202,12 +203,10 @@ def allowed_prefixes_merged() -> Optional[List[str]]:
             if normalized is None:
                 continue
             from_file.append(normalized)
+    if from_file:
+        return list(dict.fromkeys(from_file))
     env_list = parse_allowed_prefixes_env() or []
-    merged: List[str] = []
-    for p in from_file + env_list:
-        if p and p not in merged:
-            merged.append(p)
-    return merged if merged else None
+    return list(dict.fromkeys(env_list)) if env_list else None
 
 
 def allowlist_filters_search_results() -> bool:
