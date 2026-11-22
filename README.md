@@ -111,8 +111,8 @@ sequenceDiagram
 
 - **`locate_file_or_folder`:** Instantly finds files by name. Uses `es.exe` on Windows (`target_env=windows`). Use `everywhere` to combine with WSL `locate` (daily-refreshed DB, non-blocking refresh) and optional WSL `find` under `$HOME`.
 - **`locate_content_inside_files`**: Instantly searches inside documents (PDFs, Word, text). Uses AnyTXT's HTTP API on Windows and `grep` when targeting WSL paths. Includes automatic host-IP discovery for WSL2.
-- **`anytxt_ocr`**: Runs AnyTXT OCR for a single image file via the JSON-RPC helper path.
-- **`anytxt_sync_index`**: Triggers AnyTXT folder sync/index refresh via the JSON-RPC helper path.
+- **`anytxt_ocr`**: Runs AnyTXT OCR for a local Windows image that passes the configured path policy.
+- **`anytxt_sync_index`**: Queues an index refresh for a confirmed folder after checking its entire scope.
 - **`map_directory`**: Generates hierarchical, paginated directory maps to understand project structures.
 - **`get_health`**: Diagnoses the status of all search backends (Everything, AnyTXT, WSL locate/find/grep) and connectivity.
 - **`search_knowledge_base`**: Searches one configured, read-only Markdown root with file provenance and explicit coverage limits.
@@ -122,9 +122,8 @@ sequenceDiagram
 
 - OCR a single image:
   - call `anytxt_ocr` with a file path such as `C:\Users\david\Pictures\scan.png` or `/mnt/c/Users/david/Pictures/scan.png`
-- Refresh a folder index:
-  - call `anytxt_sync_index` with a folder path such as `C:\Users\david\Documents` or `/mnt/c/Users/david/Documents`
-- Both helpers use the same endpoint discovery and error handling as `locate_content_inside_files`, so you can treat them as explicit maintenance tools rather than search probes.
+- Review the entire folder before calling `anytxt_sync_index(folder, is_confirmed=True)`. The tool rejects protected descendants, links, mounted directories and trees exceeding `limits.max_catalog_lines` entries. Use a narrower folder if the scope check fails.
+- Both helpers require a local Windows drive path visible to WSL and apply Bridge Search's allowlist and denylist before contacting AnyTXT. SyncIndex sends one request to the configured JSON-RPC endpoint. If the response leaves the outcome unknown, check the AnyTXT index before retrying.
 
 
 ### `manage_file` safety rules

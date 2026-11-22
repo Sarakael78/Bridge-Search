@@ -419,8 +419,24 @@ def test_anytxt_search_count_uses_json_rpc_search_method(monkeypatch) -> None:
     assert count == 12
 
 
-def test_anytxt_ocr_uses_json_rpc_ocr_method(monkeypatch) -> None:
+def _map_anytxt_test_path(monkeypatch, local_path: Path, windows_path: str) -> None:
+    def translate(path: str, target_env: str) -> str:
+        if target_env == "wsl" and path == windows_path:
+            return str(local_path)
+        if target_env == "windows" and path == str(local_path):
+            return windows_path
+        return path
+
+    monkeypatch.setattr(search_backends, "resolve_path", translate)
+
+
+def test_anytxt_ocr_uses_json_rpc_ocr_method(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("BRIDGE_SEARCH_ANYTXT_URL", "http://winhost:9920")
+    monkeypatch.setenv("BRIDGE_SEARCH_CONFIG", str(tmp_path / "runtime.json"))
+    image = tmp_path / "image.png"
+    image.write_bytes(b"fixture")
+    windows_path = r"D:\approved\image.png"
+    _map_anytxt_test_path(monkeypatch, image, windows_path)
     seen = {}
 
     class FakeResponse:
@@ -440,21 +456,25 @@ def test_anytxt_ocr_uses_json_rpc_ocr_method(monkeypatch) -> None:
     def fake_urlopen(req, timeout=5):
         payload = json.loads(req.data.decode("utf-8"))
         seen["method"] = payload["method"]
-        assert payload["params"]["input"]["file"] == r"C:\Users\david\image.png"
+        assert payload["params"]["input"]["file"] == windows_path
         return FakeResponse(json.dumps({"result": {"output": {"text": "scanned text"}}}).encode("utf-8"))
 
     monkeypatch.setattr(search_backends.urllib.request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(search_backends, "resolve_path", lambda path, env: r"C:\Users\david\image.png")
-    result = bridge_tools.anytxt_ocr(r"/mnt/c/Users/david/image.png")
+    result = bridge_tools.anytxt_ocr(windows_path)
     assert seen["method"] == "ATRpcServer.Searcher.V1.OCR"
     assert result["success"] is True
     assert result["results"][0]["text"] == "scanned text"
-    assert result["results"][0]["raw_path"] == "/mnt/c/Users/david/image.png"
+    assert result["results"][0]["raw_path"] == windows_path
     assert result["meta"]["anytxt_url_used"] == "http://winhost:9920"
 
 
-def test_anytxt_sync_index_uses_json_rpc_syncindex_method(monkeypatch) -> None:
+def test_anytxt_sync_index_uses_json_rpc_syncindex_method(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("BRIDGE_SEARCH_ANYTXT_URL", "http://winhost:9920")
+    folder = tmp_path / "folder"
+    folder.mkdir()
+    (folder / "data.txt").write_text("fixture", encoding="utf-8")
+    windows_path = r"D:\approved\folder"
+    _map_anytxt_test_path(monkeypatch, folder, windows_path)
     seen = {}
 
     class FakeResponse:
@@ -474,17 +494,79 @@ def test_anytxt_sync_index_uses_json_rpc_syncindex_method(monkeypatch) -> None:
     def fake_urlopen(req, timeout=5):
         payload = json.loads(req.data.decode("utf-8"))
         seen["method"] = payload["method"]
-        assert payload["params"]["input"]["folder"] == r"C:\Users\david\Documents"
+        assert payload["params"]["input"]["folder"] == windows_path
         return FakeResponse(json.dumps({"result": {"output": {"message": "indexed"}}}).encode("utf-8"))
 
     monkeypatch.setattr(search_backends.urllib.request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(search_backends, "resolve_path", lambda path, env: r"C:\Users\david\Documents")
-    result = bridge_tools.anytxt_sync_index(r"/mnt/c/Users/david/Documents")
+    result = bridge_tools.anytxt_sync_index(str(folder), is_confirmed=True)
     assert seen["method"] == "ATRpcServer.Searcher.V1.SyncIndex"
     assert result["success"] is True
-    assert result["results"][0]["raw_path"] == "/mnt/c/Users/david/Documents"
+    assert result["results"][0]["raw_path"] == str(folder)
     assert result["results"][0]["response"]["result"]["output"]["message"] == "indexed"
     assert result["meta"]["anytxt_url_used"] == "http://winhost:9920"
+
+
+def test_anytxt_ocr_checks_resolved_file_against_allowlist(monkeypatch, tmp_path) -> None:
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    image = tmp_path / "outside.png"
+    image.write_bytes(b"fixture")
+    link = allowed / "image.png"
+    link.symlink_to(image)
+    _map_anytxt_test_path(monkeypatch, link, r"D:\allowed\image.png")
+    monkeypatch.setattr(path_policy, "get_bridge_config", lambda: {"security": {"allowed_prefixes": [str(allowed)]}})
+    result = bridge_tools.anytxt_ocr(r"D:\allowed\image.png")
+    assert result["errors"][0]["code"] == "path_blocked"
+
+
+def test_anytxt_sync_index_requires_confirmation_even_if_write_gate_is_disabled(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(search_backends, "get_bridge_config", lambda: {"security": {"require_confirm_for_writes": False}})
+    result = bridge_tools.anytxt_sync_index(str(tmp_path))
+    assert result["errors"][0]["code"] == "write_confirmation_required"
+
+
+def test_anytxt_sync_index_rejects_a_protected_descendant(monkeypatch, tmp_path) -> None:
+    protected = tmp_path / "protected"
+    monkeypatch.setattr(path_policy, "get_bridge_config", lambda: {"security": {
+        "path_denylist": "custom", "custom_restricted_prefixes": [str(protected)],
+    }})
+    result = bridge_tools.anytxt_sync_index(str(tmp_path), is_confirmed=True)
+    assert result["errors"][0]["code"] == "path_blocked"
+
+
+def test_anytxt_sync_index_rejects_links_within_scope(monkeypatch, tmp_path) -> None:
+    folder = tmp_path / "folder"
+    folder.mkdir()
+    (folder / "linked").symlink_to(tmp_path, target_is_directory=True)
+    _map_anytxt_test_path(monkeypatch, folder, r"D:\approved\folder")
+    result = bridge_tools.anytxt_sync_index(str(folder), is_confirmed=True)
+    assert result["errors"][0]["code"] == "path_blocked"
+
+
+def test_anytxt_sync_index_reports_a_json_rpc_error(monkeypatch, tmp_path) -> None:
+    _map_anytxt_test_path(monkeypatch, tmp_path, r"D:\approved\folder")
+    monkeypatch.setattr(search_backends, "_query_anytxt_rpc", lambda *args, **kwargs: {"error": {"code": -32601}})
+    result = bridge_tools.anytxt_sync_index(str(tmp_path), is_confirmed=True)
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "backend_error"
+    assert not result["results"]
+
+
+def test_anytxt_sync_index_does_not_retry_a_timed_out_request(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("BRIDGE_SEARCH_ANYTXT_URL", "http://winhost:9920")
+    _map_anytxt_test_path(monkeypatch, tmp_path, r"D:\approved\folder")
+    calls = []
+
+    def timeout(url, folder, *, max_bytes):
+        calls.append(url)
+        raise TimeoutError
+
+    monkeypatch.setattr(search_backends, "_query_anytxt_sync_index", timeout)
+    monkeypatch.setattr(search_backends, "get_effective_anytxt_urls", lambda: ["http://winhost:9920", "http://alternate:9920"])
+    result = bridge_tools.anytxt_sync_index(str(tmp_path), is_confirmed=True)
+    assert result["errors"][0]["code"] == "backend_timeout"
+    assert result["errors"][0]["details"] == {"outcome": "unknown"}
+    assert calls == ["http://winhost:9920"]
 
 
 def test_server_anytxt_ocr_tool_delegates(monkeypatch) -> None:
@@ -505,13 +587,15 @@ def test_server_anytxt_sync_index_tool_delegates(monkeypatch) -> None:
     seen = {}
     bridge_server = _load_server_module_with_fake_mcp(monkeypatch)
 
-    def fake_anytxt_sync_index(folder: str):
+    def fake_anytxt_sync_index(folder: str, is_confirmed: bool):
         seen["folder"] = folder
+        seen["is_confirmed"] = is_confirmed
         return {"success": True, "results": [{"type": "sync_index_result", "message": "ok"}], "errors": [], "warnings": [], "meta": {}}
 
     monkeypatch.setattr(bridge_server, "bridge_anytxt_sync_index", fake_anytxt_sync_index)
-    result = bridge_server.anytxt_sync_index(r"C:\Users\david\Documents")
+    result = bridge_server.anytxt_sync_index(r"C:\Users\david\Documents", is_confirmed=True)
     assert seen["folder"] == r"C:\Users\david\Documents"
+    assert seen["is_confirmed"] is True
     assert result["results"][0]["message"] == "ok"
 
 

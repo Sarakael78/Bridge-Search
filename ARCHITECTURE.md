@@ -31,7 +31,7 @@ Agent
 
 ### Caching and performance
 
-- `resolve_path` and `canonical_path` use bounded in-memory caches that **only store successful resolutions** (failed `wslpath` / `realpath` fallbacks are not cached, so transient errors can recover on the next call).
+- `resolve_path` caches successful path translations. `canonical_path` resolves the current filesystem target for each policy check.
 - `resolve_es_exe` and `everything_help_text` resolve under a module lock so concurrent threads do not race the cache or duplicate subprocess work; a cached `es.exe` path is still checked with `os.path.exists` before reuse.
 - Parallel execution via `ThreadPoolExecutor` ensures that backend delays do not block the entire search when targeting multiple environments.
 
@@ -90,6 +90,8 @@ Everything is the preferred Windows filename backend.
 ### Windows content search: AnyTXT
 
 AnyTXT is accessed over HTTP via its Search Service / JSON-RPC API endpoint (default the service root on port 9920). The preferred path is JSON-RPC first: `Search`/`GetResult` for compatibility probes and matching files, `GetFragment`/`GetFragmentAll` for snippet hydration, and `OCR`/`SyncIndex` when those maintenance actions are needed. Bridge Search exposes OCR and SyncIndex as explicit MCP helper tools too (`anytxt_ocr`, `anytxt_sync_index`). When the JSON endpoint is unavailable, Bridge Search falls back to the live Wt HTML search surface.
+
+OCR and SyncIndex authorise the resolved local filesystem target before sending its canonical Windows drive path. SyncIndex requires explicit confirmation, rejects protected descendants and checks the subtree within `limits.max_catalog_lines`. Its one request uses the configured JSON-RPC endpoint. Treat this preflight as a point-in-time scope check and constrain the AnyTXT account's filesystem access to its approved data.
 
 - Runtime endpoint comes from config or `BRIDGE_SEARCH_ANYTXT_URL`; non-private hosts and unexpected URL schemes log warnings to stderr (operator override).
 - Response size is capped.

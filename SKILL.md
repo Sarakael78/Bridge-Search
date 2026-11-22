@@ -97,9 +97,8 @@ Use this skill to set up and run the MCP bridge: implementation lives in **`brid
 
 - OCR a single image:
   - call `anytxt_ocr` with a file path such as `C:\Users\david\Pictures\scan.png` or `/mnt/c/Users/david/Pictures/scan.png`
-- Refresh a folder index:
-  - call `anytxt_sync_index` with a folder path such as `C:\Users\david\Documents` or `/mnt/c/Users/david/Documents`
-- Treat both helpers as explicit maintenance actions, not as search probes.
+- Review the complete folder scope before calling `anytxt_sync_index(folder, is_confirmed=True)`. Both helpers validate the resolved Windows drive path against the configured path policy. SyncIndex also checks the subtree and rejects links and mounted directories.
+- Check the AnyTXT index before retrying a SyncIndex request whose outcome is unknown.
 
 ## When details matter
 

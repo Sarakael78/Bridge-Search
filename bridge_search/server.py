@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import StrictBool
 
 from .bridge_tools import anytxt_ocr as bridge_anytxt_ocr, anytxt_sync_index as bridge_anytxt_sync_index, catalog_directory, content_locator, hybrid_file_io, system_locator
 from .health import check_health
@@ -133,18 +134,20 @@ def search_knowledge_base(
 def anytxt_ocr(file_path: str) -> Dict[str, Any]:
     """
     Run AnyTXT OCR for a single image file via the JSON-RPC helper path.
+    The resolved image must be on a local Windows drive and within the configured path policy.
     Returns the standard bridge response shape: success, results, errors, warnings, meta.
     """
     return bridge_anytxt_ocr(file_path)
 
 
 @mcp.tool()
-def anytxt_sync_index(folder: str) -> Dict[str, Any]:
+def anytxt_sync_index(folder: str, is_confirmed: StrictBool = False) -> Dict[str, Any]:
     """
-    Ask AnyTXT to sync a folder into its index via the JSON-RPC helper path.
+    Ask AnyTXT to sync a folder into its index. Review the entire folder and pass is_confirmed=True.
+    Its subtree must pass the path policy and scope check. Check AnyTXT status before retrying an unconfirmed outcome.
     Returns the standard bridge response shape: success, results, errors, warnings, meta.
     """
-    return bridge_anytxt_sync_index(folder)
+    return bridge_anytxt_sync_index(folder, is_confirmed=is_confirmed)
 
 
 if __name__ == "__main__":

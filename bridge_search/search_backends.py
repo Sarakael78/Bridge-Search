@@ -456,24 +456,80 @@ def _query_anytxt_ocr(url: str, file_path: str, *, max_bytes: int) -> Dict[str, 
     """Use AnyTXT's OCR method and return the raw JSON payload."""
     if _anytxt_uses_legacy_search(url):
         raise AnyTxtEndpointError("AnyTXT OCR requires the JSON-RPC endpoint.")
-    return _query_anytxt_rpc(
+    data = _query_anytxt_rpc(
         url,
         "ATRpcServer.Searcher.V1.OCR",
         {"file": file_path},
         max_bytes=max_bytes,
     )
+    _validate_anytxt_helper_result(data)
+    return data
 
 
 def _query_anytxt_sync_index(url: str, folder: str, *, max_bytes: int) -> Dict[str, Any]:
     """Use AnyTXT's SyncIndex method and return the raw JSON payload."""
     if _anytxt_uses_legacy_search(url):
         raise AnyTxtEndpointError("AnyTXT SyncIndex requires the JSON-RPC endpoint.")
-    return _query_anytxt_rpc(
+    data = _query_anytxt_rpc(
         url,
         "ATRpcServer.Searcher.V1.SyncIndex",
         {"folder": folder},
         max_bytes=max_bytes,
     )
+    _validate_anytxt_helper_result(data)
+    return data
+
+
+def _validate_anytxt_helper_result(data: Dict[str, Any]) -> None:
+    if isinstance(data, dict) and data.get("error") is not None:
+        raise AnyTxtEndpointError("AnyTXT rejected the JSON-RPC request.", code=ErrorCodes.BACKEND_ERROR)
+    if not isinstance(data, dict) or "result" not in data:
+        raise AnyTxtEndpointError("AnyTXT returned no JSON-RPC result.", code=ErrorCodes.INVALID_RESPONSE)
+
+
+def _anytxt_windows_path(raw_path: str, *, folder: bool = False) -> str:
+    """Authorise the locally visible target and send its canonical Windows drive path."""
+    local_path = resolve_path(raw_path, "wsl")
+    if not os.path.isabs(local_path) or looks_like_windows_abs_path(local_path):
+        raise AnyTxtEndpointError("Use an absolute path on a Windows drive visible to WSL.", code=ErrorCodes.PATH_TRANSLATION_FAILED)
+    try:
+        target = os.path.realpath(local_path, strict=True)
+    except (OSError, ValueError) as exc:
+        raise AnyTxtEndpointError("The requested path could not be inspected.", code=ErrorCodes.PATH_BLOCKED) from exc
+    if not is_path_allowed(target, "wsl", recursive=folder):
+        raise AnyTxtEndpointError("Access to the resolved path or subtree is blocked.", code=ErrorCodes.PATH_BLOCKED)
+
+    windows_path = resolve_path(target, "windows")
+    if not re.fullmatch(r"[A-Za-z]:[\\/][^:]+", windows_path):
+        raise AnyTxtEndpointError("The resolved path must be on a local Windows drive.", code=ErrorCodes.PATH_TRANSLATION_FAILED)
+    if folder:
+        _check_anytxt_sync_tree(target)
+    elif not os.path.isfile(target):
+        raise AnyTxtEndpointError("OCR requires a regular file.", code=ErrorCodes.PATH_BLOCKED)
+    return windows_path
+
+
+def _check_anytxt_sync_tree(folder: str) -> None:
+    limit = lim("max_catalog_lines")
+    checked = 0
+    pending = [folder]
+    try:
+        while pending:
+            with os.scandir(pending.pop()) as entries:
+                for entry in entries:
+                    checked += 1
+                    if checked > limit:
+                        raise AnyTxtEndpointError("Folder exceeds the scope check limit. Choose a narrower folder.", code=ErrorCodes.PATH_BLOCKED)
+                    if entry.is_symlink() or not is_path_allowed(entry.path, "wsl"):
+                        raise AnyTxtEndpointError("Folder contains a link or a protected entry.", code=ErrorCodes.PATH_BLOCKED)
+                    if entry.is_dir(follow_symlinks=False):
+                        if os.path.ismount(entry.path):
+                            raise AnyTxtEndpointError("Folder contains a mounted filesystem.", code=ErrorCodes.PATH_BLOCKED)
+                        pending.append(entry.path)
+                    elif not entry.is_file(follow_symlinks=False):
+                        raise AnyTxtEndpointError("Folder contains a non-regular entry.", code=ErrorCodes.PATH_BLOCKED)
+    except OSError as exc:
+        raise AnyTxtEndpointError("The entire folder could not be inspected.", code=ErrorCodes.PATH_BLOCKED) from exc
 
 
 def anytxt_ocr(file_path: str) -> Dict[str, Any]:
@@ -484,7 +540,12 @@ def anytxt_ocr(file_path: str) -> Dict[str, Any]:
     if not raw_path:
         return _query_required_response(source="anytxt-ocr", meta=meta)
 
-    normalized_path = resolve_path(raw_path, "windows")
+    if not backend_enabled("anytxt"):
+        return error_response(code=ErrorCodes.BACKEND_DISABLED, message="AnyTXT is disabled.", source="windows-anytxt", meta=meta)
+    try:
+        normalized_path = _anytxt_windows_path(raw_path)
+    except AnyTxtEndpointError as exc:
+        return error_response(code=exc.code, message=str(exc), source="windows-anytxt", path=raw_path, meta=meta)
     results: List[Dict[str, Any]] = []
     errors: List[Dict[str, Any]] = []
     warnings: List[Dict[str, Any]] = []
@@ -523,49 +584,54 @@ def anytxt_ocr(file_path: str) -> Dict[str, Any]:
     return error_response(code=ErrorCodes.BACKEND_ERROR, message=str(last_err or "AnyTXT OCR failed."), source="windows-anytxt", meta=meta)
 
 
-def anytxt_sync_index(folder: str) -> Dict[str, Any]:
+def anytxt_sync_index(folder: str, is_confirmed: bool = False) -> Dict[str, Any]:
     """Ask AnyTXT to sync a folder into its index and return a structured bridge response."""
-    cap_anytxt = lim("anytxt_max_response_bytes")
     raw_folder = (folder or "").strip()
-    meta: Dict[str, Any] = {"anytxt_url": anytxt_search_url(), "folder": raw_folder}
+    url = anytxt_search_url()
+    meta: Dict[str, Any] = {"anytxt_url": url, "folder": raw_folder}
     if not raw_folder:
         return _query_required_response(source="anytxt-sync-index", meta=meta)
 
-    normalized_folder = resolve_path(raw_folder, "windows")
-    results: List[Dict[str, Any]] = []
-    errors: List[Dict[str, Any]] = []
-    warnings: List[Dict[str, Any]] = []
-    used_url = ""
-    last_err: Optional[BaseException] = None
-
-    for url in get_effective_anytxt_urls():
-        try:
-            data = _query_anytxt_sync_index(url, normalized_folder, max_bytes=cap_anytxt)
-            results.append(
-                {
-                    "type": "sync_index_result",
-                    "path": normalized_folder,
-                    "raw_path": raw_folder,
-                    "response": data,
-                    "source": "windows-anytxt",
-                }
-            )
-            used_url = url
-            _record_anytxt_runtime_url(url, source="anytxt-sync-index", probe_query=normalized_folder)
-            break
-        except (OSError, urllib.error.URLError, AnyTxtEndpointError) as exc:
-            last_err = exc
-            continue
-
-    if used_url:
-        meta["anytxt_url_used"] = used_url
-        return success_response(results=results, errors=errors, warnings=warnings, meta=meta)
-
-    if isinstance(last_err, AnyTxtEndpointError):
-        return error_response(code=last_err.code, message=str(last_err), source="windows-anytxt", meta=meta)
-    if last_err is not None and _is_timeout_error(last_err):
-        return error_response(code=ErrorCodes.BACKEND_TIMEOUT, message="AnyTXT SyncIndex timed out.", source="windows-anytxt", meta=meta)
-    return error_response(code=ErrorCodes.BACKEND_ERROR, message=str(last_err or "AnyTXT SyncIndex failed."), source="windows-anytxt", meta=meta)
+    if not backend_enabled("anytxt"):
+        return error_response(code=ErrorCodes.BACKEND_DISABLED, message="AnyTXT is disabled.", source="windows-anytxt", meta=meta)
+    if is_confirmed is not True:
+        return error_response(
+            code=ErrorCodes.WRITE_CONFIRMATION_REQUIRED,
+            message="Pass is_confirmed=True after reviewing the entire folder to index.",
+            source="windows-anytxt",
+            path=raw_folder,
+            meta=meta,
+        )
+    try:
+        normalized_folder = _anytxt_windows_path(raw_folder, folder=True)
+    except AnyTxtEndpointError as exc:
+        return error_response(code=exc.code, message=str(exc), source="windows-anytxt", path=raw_folder, meta=meta)
+    try:
+        data = _query_anytxt_sync_index(url, normalized_folder, max_bytes=lim("anytxt_max_response_bytes"))
+    except (AnyTxtEndpointError, OSError, UnicodeError) as exc:
+        if isinstance(exc, AnyTxtEndpointError):
+            code = exc.code
+            if code not in {ErrorCodes.INVALID_RESPONSE, ErrorCodes.RESPONSE_TOO_LARGE}:
+                return error_response(code=code, message=str(exc), source="windows-anytxt", meta=meta)
+        elif isinstance(exc, UnicodeError):
+            code = ErrorCodes.INVALID_RESPONSE
+        else:
+            code = ErrorCodes.BACKEND_TIMEOUT if _is_timeout_error(exc) else ErrorCodes.BACKEND_ERROR
+        return error_response(
+            code=code,
+            message="AnyTXT did not confirm the index request. Check its status before retrying.",
+            source="windows-anytxt",
+            details={"outcome": "unknown"},
+            meta=meta,
+        )
+    meta["anytxt_url_used"] = url
+    return success_response(results=[{
+        "type": "sync_index_result",
+        "path": normalized_folder,
+        "raw_path": raw_folder,
+        "response": data,
+        "source": "windows-anytxt",
+    }], meta=meta)
 
 
 def _query_anytxt_hits(url: str, query: str, *, limit: int, offset: int, max_bytes: int, hydrate_fragments: bool = False) -> List[Dict[str, Any]]:
