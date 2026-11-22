@@ -131,9 +131,9 @@ sequenceDiagram
 
 `manage_file` is stricter than a raw shell wrapper:
 
-- write and delete still require `is_confirmed=True` when confirmation gates are enabled
+- write, move, delete, and copy-overwrite operations require `is_confirmed=True` when confirmation gates are enabled; for copy, the gate applies to every request carrying `overwrite=True`, even if the destination is currently absent
 - `write` now defaults to **replace**, while append requires `write_mode="append"`
-- copy and move will **not** overwrite an existing destination unless `overwrite=True`
+- copy and move will **not** overwrite an existing destination unless `overwrite=True`; copy-overwrite still requires confirmation
 - copy and move refuse source and destination paths that resolve to the same location
 - copy and move refuse to place a directory inside itself
 - delete refuses filesystem root and the current user's home directory
@@ -258,7 +258,8 @@ Important:
   - Depth capped by `limits.max_depth`, and listings stop after `limits.max_catalog_lines` entries to avoid blowing the cache.
 - `manage_file(action, source_path, destination_path=None, content=None, target_env="wsl", overwrite=False, is_confirmed=False, write_mode="replace")` – Guarded reads/writes.
   - `action` = `read|write|copy|move|delete|mkdir`.
-  - `is_confirmed=True` is required for mutations when confirmations are enabled.
+  - `is_confirmed=True` is required for writes, moves, deletes, and copy requests carrying `overwrite=True` when confirmations are enabled.
+  - Moves and copy-overwrite requests that require confirmation return both paths in the error's `details` for review.
   - `write_mode` defaults to `replace`; pass `append` when you explicitly want append semantics.
 
 ### Read-only approved knowledge
@@ -306,7 +307,7 @@ We provide templates in the `config/` directory for common setups:
 - `security.path_denylist` (`default`, `minimal`, `custom`, `none`) controls the denylist applied to search paths and file operations.
 - `security.custom_restricted_prefixes` + `security.allowed_prefixes` override the deny/allow lists you see in `path_policy.py`. Use absolute WSL paths or Windows-style `C:\...` paths; Windows entries are normalized into WSL form before policy checks. If you are explicitly allowlisting drive roots, include the roots you want searchable, for example `D:\`, `E:\`, `F:\`, and `X:\` (or the equivalent `/mnt/d`, `/mnt/e`, `/mnt/f`, `/mnt/x` paths).
 - `security.allow_grep_from_filesystem_root` & `security.allow_wsl_locator_from_filesystem_root` gate root-level scans.
-- `security.require_confirm_for_writes` / `security.require_confirm_for_deletes` keep `manage_file` mutations gated by `is_confirmed`.
+- `security.require_confirm_for_writes` gates writes, moves, and copy-overwrite operations; `security.require_confirm_for_deletes` separately gates deletion.
 - `limits.*` values tune caps:
   - `max_limit`, `max_offset` control the MCP pagination parameters.
   - `max_depth` and `max_catalog_lines` limit `map_directory`.
@@ -359,6 +360,25 @@ For OpenClaw, manually add `bridge-search` to `alsoAllow` for your agent, then r
 
 Installer note: `setup_skill.py` no longer edits `~/.openclaw/openclaw.json` unless you explicitly pass `--openclaw-allowlist`.
 
+### Hermes Agent (native MCP client)
+
+If you use [Hermes Agent](https://hermes-agent.nousresearch.com), register bridge-search in your `~/.hermes/config.yaml`:
+
+```bash
+hermes config set mcp_servers.bridge-search.command "/path/to/windows-search/start-bridge-search.sh"
+hermes config set mcp_servers.bridge-search.args '[]'
+hermes config set mcp_servers.bridge-search.enabled true
+hermes config set mcp_servers.bridge-search.timeout 30
+```
+
+`start-bridge-search.sh` launches the repository's `scripts/server.py` with its local virtual environment. It works from the MCP host's working directory. If your checkout loses the executable bit, restore it with:
+
+```bash
+chmod +x /path/to/windows-search/start-bridge-search.sh
+```
+
+Hermes's native MCP client auto-discovers the server on next session start, injecting the bridge tools (`locate_file_or_folder`, `locate_content_inside_files`, etc.) directly alongside your other tools.
+
 ### Uninstalling
 
 ```bash
@@ -377,7 +397,7 @@ For OpenClaw, remove `bridge-search` from `alsoAllow` in `~/.openclaw/openclaw.j
 | ----- | ----- |
 | **Path Denylist** | Paths are resolved via `realpath` and checked against a denylist of sensitive prefixes (e.g., `/etc`, `/mnt/c/Windows`, `/usr`). |
 | **Optional Allowlist** | Set `BRIDGE_SEARCH_ALLOWED_PREFIXES` in environment or `security.allowed_prefixes` in config. The env parser accepts `:` or `;`; prefer `;` when any `C:\...` path is present. If set, operations and search results are strictly filtered to these folders. |
-| **Confirmation Flags** | All write/delete operations require the `is_confirmed=True` flag from the agent by default. *(Note: This is a workflow check, not OS-level authorisation).* |
+| **Confirmation Flags** | Writes, moves, deletes, and copy requests carrying `overwrite=True` require the `is_confirmed=True` flag from the agent by default. The copy gate follows the flag even when the destination is currently absent. *(Note: This is a workflow check, not OS-level authorisation).* |
 | **Safer File Ops** | Copy/move require explicit overwrite opt-in, block self-targeting and copy-into-self mistakes, and delete refuses root and home-directory targets. |
 | **Encoding & Symlink Policy** | Text reads try common Windows/Unicode encodings before failing. Mutating operations are blocked on symlink paths so the agent must act on the resolved real path explicitly. |
 | **Search Root Limits** | WSL content/filename searches default to `$HOME`. Searching from `/` requires explicit opt-in via config keys like `security.allow_grep_from_filesystem_root`. |

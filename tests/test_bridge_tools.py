@@ -110,6 +110,61 @@ def test_custom_restricted_prefixes_support_windows_paths(monkeypatch, tmp_path)
     assert path_policy.is_path_allowed("/mnt/c/Users/david/Public/file.txt", "wsl") is True
 
 
+
+def test_legacy_allowed_prefixes_env_aliases_still_enforce_allowlist(monkeypatch) -> None:
+    monkeypatch.delenv("BRIDGE_SEARCH_ALLOWED_PREFIXES", raising=False)
+    monkeypatch.setenv("WSL_BRIDGE_ALLOWED_PREFIXES", "/tmp/bridge-search-allowed")
+    assert path_policy.allowed_prefixes_merged() == ["/tmp/bridge-search-allowed"]
+    assert path_policy.is_path_allowed("/tmp/bridge-search-allowed/file.txt", "wsl") is True
+    assert path_policy.is_path_allowed("/tmp/bridge-search-outside/file.txt", "wsl") is False
+
+
+def test_primary_allowed_prefixes_env_takes_precedence_over_legacy_alias(monkeypatch) -> None:
+    monkeypatch.setenv("BRIDGE_SEARCH_ALLOWED_PREFIXES", "/tmp/bridge-search-primary")
+    monkeypatch.setenv("WSL_BRIDGE_ALLOWED_PREFIXES", "/tmp")
+    assert path_policy.allowed_prefixes_merged() == ["/tmp/bridge-search-primary"]
+    assert path_policy.is_path_allowed("/tmp/bridge-search-primary/file.txt", "wsl") is True
+    assert path_policy.is_path_allowed("/tmp/bridge-search-outside/file.txt", "wsl") is False
+
+
+def test_config_allowed_prefixes_take_precedence_over_env_aliases(monkeypatch, tmp_path) -> None:
+    config_path = tmp_path / "bridge-search.config.json"
+    allowed = tmp_path / "allowed"
+    config_path.write_text(
+        json.dumps({"security": {"allowed_prefixes": [str(allowed)]}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BRIDGE_SEARCH_CONFIG", str(config_path))
+    monkeypatch.setenv("WSL_BRIDGE_ALLOWED_PREFIXES", str(tmp_path))
+    bridge_config.get_bridge_config(reload=True)
+    assert path_policy.allowed_prefixes_merged() == [str(allowed)]
+    assert path_policy.is_path_allowed(str(allowed / "file.txt"), "wsl") is True
+    assert path_policy.is_path_allowed(str(tmp_path / "outside" / "file.txt"), "wsl") is False
+
+def test_legacy_config_env_alias_loads_security_policy(monkeypatch, tmp_path) -> None:
+    config_path = tmp_path / "legacy.json"
+    config_path.write_text(
+        json.dumps({"security": {"allowed_prefixes": [str(tmp_path / "allowed")]}}),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("BRIDGE_SEARCH_CONFIG", raising=False)
+    monkeypatch.setenv("WSL_BRIDGE_CONFIG", str(config_path))
+    bridge_config.get_bridge_config(reload=True)
+    assert path_policy.is_path_allowed(str(tmp_path / "allowed" / "file.txt"), "wsl") is True
+    assert path_policy.is_path_allowed(str(tmp_path / "outside" / "file.txt"), "wsl") is False
+
+
+def test_primary_config_env_takes_precedence_over_legacy_alias(monkeypatch, tmp_path) -> None:
+    primary = tmp_path / "primary.json"
+    legacy = tmp_path / "legacy.json"
+    primary.write_text(json.dumps({"security": {"allowed_prefixes": [str(tmp_path / "primary")]}}), encoding="utf-8")
+    legacy.write_text(json.dumps({"security": {"allowed_prefixes": [str(tmp_path / "legacy")]}}), encoding="utf-8")
+    monkeypatch.setenv("BRIDGE_SEARCH_CONFIG", str(primary))
+    monkeypatch.setenv("WSL_BRIDGE_CONFIG", str(legacy))
+    bridge_config.get_bridge_config(reload=True)
+    assert path_policy.is_path_allowed(str(tmp_path / "primary" / "file.txt"), "wsl") is True
+    assert path_policy.is_path_allowed(str(tmp_path / "legacy" / "file.txt"), "wsl") is False
+
 def test_backend_enabled_env_overrides_config(monkeypatch) -> None:
     monkeypatch.delenv("BRIDGE_SEARCH_ENABLE_EVERYTHING", raising=False)
     cfg = copy.deepcopy(bridge_config._DEFAULTS)
@@ -538,13 +593,108 @@ def test_manage_file_copy_requires_explicit_overwrite(tmp_path) -> None:
     assert result["errors"][0]["code"] == "destination_exists"
 
 
+def test_manage_file_move_requires_confirmation(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+
+    result = bridge_tools.hybrid_file_io("move", str(src), destination_path=str(dst))
+
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "write_confirmation_required"
+    assert result["errors"][0]["details"] == {"source_path": str(src), "destination_path": str(dst)}
+    assert src.read_text(encoding="utf-8") == "source"
+    assert dst.exists() is False
+
+    confirmed = bridge_tools.hybrid_file_io("move", str(src), destination_path=str(dst), is_confirmed=True)
+    assert confirmed["success"] is True
+    assert src.exists() is False
+    assert dst.read_text(encoding="utf-8") == "source"
+
+
+def test_manage_file_move_requires_overwrite_before_confirmation(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+    dst.write_text("dest", encoding="utf-8")
+
+    result = bridge_tools.hybrid_file_io("move", str(src), destination_path=str(dst))
+
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "destination_exists"
+    assert src.read_text(encoding="utf-8") == "source"
+    assert dst.read_text(encoding="utf-8") == "dest"
+
+
+def test_manage_file_copy_overwrite_requires_confirmation(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+    dst.write_text("dest", encoding="utf-8")
+
+    result = bridge_tools.hybrid_file_io("copy", str(src), destination_path=str(dst), overwrite=True)
+
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "write_confirmation_required"
+    assert result["errors"][0]["details"] == {"source_path": str(src), "destination_path": str(dst)}
+    assert dst.read_text(encoding="utf-8") == "dest"
+
+
+def test_manage_file_copy_overwrite_flag_requires_confirmation_for_absent_destination(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+
+    result = bridge_tools.hybrid_file_io("copy", str(src), destination_path=str(dst), overwrite=True)
+
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "write_confirmation_required"
+    assert dst.exists() is False
+
+
+def test_manage_file_copy_overwrite_same_path_keeps_specific_error(tmp_path) -> None:
+    src = tmp_path / "src.txt"
+    src.write_text("source", encoding="utf-8")
+
+    result = bridge_tools.hybrid_file_io("copy", str(src), destination_path=str(src), overwrite=True)
+
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "same_path"
+
+
 def test_manage_file_copy_and_move_overwrite(tmp_path) -> None:
     src = tmp_path / "src.txt"
     dst = tmp_path / "dst.txt"
     src.write_text("source", encoding="utf-8")
     dst.write_text("dest", encoding="utf-8")
+    copy_result = bridge_tools.hybrid_file_io(
+        "copy", str(src), destination_path=str(dst), overwrite=True, is_confirmed=True
+    )
+    assert copy_result["success"] is True
+    assert dst.read_text(encoding="utf-8") == "source"
+    moved_src = tmp_path / "move.txt"
+    moved_src.write_text("moved", encoding="utf-8")
+    move_result = bridge_tools.hybrid_file_io(
+        "move", str(moved_src), destination_path=str(dst), overwrite=True, is_confirmed=True
+    )
+    assert move_result["success"] is True
+    assert dst.read_text(encoding="utf-8") == "moved"
+
+
+def test_manage_file_confirmation_policy_can_be_disabled(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        file_ops,
+        "get_bridge_config",
+        lambda: {"security": {"require_confirm_for_writes": False}},
+    )
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("source", encoding="utf-8")
+    dst.write_text("dest", encoding="utf-8")
+
     copy_result = bridge_tools.hybrid_file_io("copy", str(src), destination_path=str(dst), overwrite=True)
     assert copy_result["success"] is True
+
     moved_src = tmp_path / "move.txt"
     moved_src.write_text("moved", encoding="utf-8")
     move_result = bridge_tools.hybrid_file_io("move", str(moved_src), destination_path=str(dst), overwrite=True)
@@ -563,6 +713,30 @@ def test_manage_file_symlink_policy(tmp_path) -> None:
     delete_result = bridge_tools.hybrid_file_io("delete", str(link), is_confirmed=True)
     assert delete_result["success"] is True
     assert target.exists()
+
+
+def test_manage_file_rechecks_changed_symlink_target_for_policy(monkeypatch, tmp_path) -> None:
+    allowed_dir = tmp_path / "allowed"
+    outside_dir = tmp_path / "outside"
+    allowed_dir.mkdir()
+    outside_dir.mkdir()
+    benign = allowed_dir / "benign.txt"
+    outside = outside_dir / "secret.txt"
+    link = allowed_dir / "link.txt"
+    benign.write_text("benign", encoding="utf-8")
+    outside.write_text("secret", encoding="utf-8")
+    link.symlink_to(benign)
+    monkeypatch.setenv("BRIDGE_SEARCH_ALLOWED_PREFIXES", str(allowed_dir))
+
+    assert path_policy.is_path_allowed(str(link), "wsl") is True
+
+    link.unlink()
+    link.symlink_to(outside)
+
+    assert path_policy.is_path_allowed(str(link), "wsl") is False
+    result = bridge_tools.hybrid_file_io("read", str(link))
+    assert result["success"] is False
+    assert result["errors"][0]["code"] == "path_blocked"
 
 
 def test_manage_file_delete_home_directory_blocked(monkeypatch, tmp_path) -> None:
@@ -872,6 +1046,74 @@ def test_anytxt_wt_live_bootstrap_controls_are_parseable() -> None:
     assert select_name
     assert search_signal
     assert drive_options == [("", "All Files")]
+
+
+def test_anytxt_wt_default_drive_option_suppresses_redundant_specific_options() -> None:
+    drive_options = [("", "All Files"), ("C:", "C:"), ("D:", "D:")]
+    assert search_backends._effective_anytxt_wt_drive_options(drive_options) == [("", "All Files")]
+
+
+def test_anytxt_wt_driver_queries_default_drive_option_once(monkeypatch) -> None:
+    def mock_load(*args, **kwargs):
+        raise search_backends.AnyTxtEndpointError("html")
+    monkeypatch.setattr(search_backends, "_load_anytxt_json_response", mock_load)
+    monkeypatch.setattr(search_backends, "_extract_anytxt_wt_controls", lambda _html: ("q", "drive", "search", [("", "All Files"), ("C:", "C:")]))
+    monkeypatch.setattr(search_backends, "_extract_anytxt_wt_search_button_id", lambda _html: None)
+    monkeypatch.setattr(search_backends, "_extract_anytxt_wt_ack", lambda _html: "1")
+    monkeypatch.setattr(search_backends, "_extract_anytxt_wt_page_id", lambda _html: "1")
+    monkeypatch.setattr(
+        search_backends,
+        "_extract_anytxt_wt_results",
+        lambda _html: [{"type": "content_hit", "path": "C:/note.txt", "snippet": "needle"}],
+    )
+
+    requests = []
+
+    class FakeResponse:
+        status = 200
+        headers = {"content-type": "text/html; charset=UTF-8"}
+
+        def __init__(self, body: bytes):
+            self._body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, _max_bytes):
+            return self._body
+
+    def fake_urlopen(req, timeout=5):
+        requests.append(req)
+        if len(requests) == 1:
+            return FakeResponse(b'<html><a href="?wtd=abc">session</a></html>')
+        if len(requests) == 2:
+            return FakeResponse(b"bootstrap")
+        return FakeResponse(b"results")
+
+    monkeypatch.setattr(search_backends.urllib.request, "urlopen", fake_urlopen)
+
+    hits = search_backends._query_anytxt_hits("http://127.0.0.1:9921", "needle", limit=10, offset=0, max_bytes=100_000)
+
+    assert len(hits) == 1
+    search_posts = [req for req in requests if getattr(req, "data", None) and b"request=jsupdate" in req.data]
+    assert len(search_posts) == 1
+    assert b"drive=&" in search_posts[0].data
+
+
+def test_anytxt_wt_escaped_windows_paths_do_not_decode_control_characters() -> None:
+    synthetic = r'''
+    <button title="Click to view file text content">
+      <a href="#" class="pe-none">hardcorenas.py</a>
+    </button>
+    <div><div>matched text</div></div>
+    <div><div><font color="green">C:\\Users\\Example\\site-packages\\timm\\rules\\nested\\hardcorenas.py</font></div></div>
+    '''
+    hits = search_backends._extract_anytxt_wt_results(synthetic)
+    assert hits[0]["raw_path"] == r"C:\Users\Example\site-packages\timm\rules\nested\hardcorenas.py"
+    assert not any(character in hits[0]["raw_path"] for character in "\t\r\n")
 
 
 def test_anytxt_wt_no_files_response_is_clean_zero_hits() -> None:

@@ -263,15 +263,21 @@ def _extract_anytxt_wt_page_id(page_html: str) -> str:
 
 
 def _normalise_anytxt_wt_markup(page_html: str) -> str:
-    """Make Wt JavaScript string fragments parseable as ordinary HTML-ish text."""
+    """Make Wt JavaScript string fragments parseable without corrupting Windows paths."""
+    # Wt embeds HTML in JavaScript strings. Protect escaped Windows path
+    # separators before decoding JavaScript whitespace escapes; otherwise a
+    # segment such as ``\\timm`` becomes a tab and ``\\rules`` a carriage return.
+    escaped_backslash = "\ue000BRIDGE_SEARCH_BACKSLASH\ue001"
     return (
         page_html
+        .replace(r"\\", escaped_backslash)
         .replace(r"\r", "\r")
         .replace(r"\n", "\n")
         .replace(r"\t", "\t")
         .replace(r"\"", '"')
         .replace(r"\'", "'")
         .replace(r"\/", "/")
+        .replace(escaped_backslash, "\\")
     )
 
 
@@ -336,6 +342,21 @@ def _extract_anytxt_wt_controls(page_html: str) -> Tuple[Optional[str], Optional
         drive_options = [("", "All Files")]
 
     return text_input, select_name, search_signal, drive_options
+
+
+def _effective_anytxt_wt_drive_options(drive_options: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
+    """Return the minimal AnyTXT Wt drive filters needed for a complete search.
+
+    The Wt UI commonly exposes an empty-value/default ``All Files`` option
+    alongside specific drives or file-type filters. Selecting that default already
+    searches the full index, so querying every specific option afterwards is
+    redundant and can multiply latency by the number of options.
+    """
+    for drive_value, drive_label in drive_options:
+        normalized_label = " ".join((drive_label or "").split()).lower()
+        if drive_value == "" or normalized_label in {"all", "all files", "all file", "everything"}:
+            return [(drive_value, drive_label)]
+    return drive_options
 
 
 def _extract_anytxt_wt_results(page_html: str) -> List[Dict[str, Any]]:
@@ -629,7 +650,7 @@ def _query_anytxt_hits(url: str, query: str, *, limit: int, offset: int, max_byt
 
     wt_hits: List[Dict[str, Any]] = []
     seen = set()
-    for drive_value, drive_label in drive_options:
+    for drive_value, drive_label in _effective_anytxt_wt_drive_options(drive_options):
         fields: List[Tuple[str, str]] = [
             ("request", "jsupdate"),
             ("signal", search_signal),

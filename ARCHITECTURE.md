@@ -60,7 +60,7 @@ Agent
 1. MCP calls `manage_file`.
 2. `hybrid_file_io` resolves source and destination paths.
 3. Path policy checks run before mutation.
-4. Confirmation gates are enforced for write and delete when enabled.
+4. Confirmation gates are enforced for write, move, copy-overwrite, and delete operations when enabled.
 5. File operations use Python APIs, not shell wrappers.
 6. Errors are returned as structured response objects, not raw exceptions.
 

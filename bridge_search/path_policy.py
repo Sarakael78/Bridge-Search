@@ -35,31 +35,12 @@ _RESTRICTED_MINIMAL: Tuple[str, ...] = (
 _WINDOWS_ABS_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
-_CANONICAL_CACHE: Dict[str, str] = {}
-_CANONICAL_CACHE_MAX = 4096
-_CANONICAL_LOCK = threading.Lock()
-
-
 def canonical_path(path: str) -> str:
-    """Return a normalized real path when possible.
-
-    Successful ``realpath`` results are cached.  When ``realpath`` raises
-    (broken symlink, permission error) the ``normpath`` fallback is returned
-    but *not* cached so a future call can retry after conditions change.
-    """
-    with _CANONICAL_LOCK:
-        cached = _CANONICAL_CACHE.get(path)
-    if cached is not None:
-        return cached
+    """Return a normalized real path when possible."""
     try:
-        result = os.path.realpath(path)
+        return os.path.realpath(path)
     except OSError:
         return os.path.normpath(path)
-    with _CANONICAL_LOCK:
-        if len(_CANONICAL_CACHE) >= _CANONICAL_CACHE_MAX:
-            _CANONICAL_CACHE.clear()
-        _CANONICAL_CACHE[path] = result
-    return result
 
 
 def looks_like_windows_abs_path(path: str) -> bool:
@@ -191,17 +172,26 @@ def _restricted_prefixes() -> Tuple[str, ...]:
     return _RESTRICTED_DEFAULT
 
 
+_ALLOWED_PREFIX_ENV_VARS: Tuple[str, ...] = (
+    "BRIDGE_SEARCH_ALLOWED_PREFIXES",
+    "WSL_WINDOWS_SEARCH_BRIDGE_ALLOWED_PREFIXES",
+    "WSL_BRIDGE_ALLOWED_PREFIXES",
+)
+
+
 def parse_allowed_prefixes_env() -> Optional[List[str]]:
-    raw = os.environ.get("BRIDGE_SEARCH_ALLOWED_PREFIXES", "").strip()
-    if not raw:
-        return None
-    out: List[str] = []
-    for part in _split_prefix_blob(raw):
-        normalized = normalize_policy_prefix(part)
-        if normalized is None:
+    for name in _ALLOWED_PREFIX_ENV_VARS:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
             continue
-        out.append(normalized)
-    return out if out else None
+        out: List[str] = []
+        for part in _split_prefix_blob(raw):
+            normalized = normalize_policy_prefix(part)
+            if normalized is None:
+                continue
+            out.append(normalized)
+        return out if out else None
+    return None
 
 
 def allowed_prefixes_merged() -> Optional[List[str]]:
@@ -213,12 +203,10 @@ def allowed_prefixes_merged() -> Optional[List[str]]:
             if normalized is None:
                 continue
             from_file.append(normalized)
+    if from_file:
+        return list(dict.fromkeys(from_file))
     env_list = parse_allowed_prefixes_env() or []
-    merged: List[str] = []
-    for p in from_file + env_list:
-        if p and p not in merged:
-            merged.append(p)
-    return merged if merged else None
+    return list(dict.fromkeys(env_list)) if env_list else None
 
 
 def allowlist_filters_search_results() -> bool:

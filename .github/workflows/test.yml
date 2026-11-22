@@ -6,18 +6,23 @@ on:
   pull_request:
     branches: [ main, master ]
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
         python-version: "3.12"
     - name: Lint with ruff
       run: |
-        pip install ruff
+        # Keep CI reproducible: Ruff 0.16 enabled new rules across the existing
+        # codebase and turned unchanged master into hundreds of failures.
+        pip install ruff==0.15.22
         ruff check bridge_search/ scripts/ tests/
     - name: Type check with mypy
       run: |
@@ -32,13 +37,13 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
     - name: Cache pip packages
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('requirements*.txt') }}
