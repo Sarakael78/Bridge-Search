@@ -357,7 +357,7 @@ hermes config set mcp_servers.bridge-search.enabled true
 hermes config set mcp_servers.bridge-search.timeout 30
 ```
 
-The repository includes `start-bridge-search.sh` — a thin wrapper that resolves the repo directory dynamically and launches the local venv's Python with `-m bridge_search`. It is tracked as executable; if your checkout loses executable bits, restore them with:
+`start-bridge-search.sh` launches the repository's `scripts/server.py` with its local virtual environment. It works from the MCP host's working directory. If your checkout loses the executable bit, restore it with:
 
 ```bash
 chmod +x /path/to/windows-search/start-bridge-search.sh
