@@ -118,10 +118,10 @@ def _pip_install(
         if not run_command(cmd, f"Installing dependencies from {requirements_txt}"):
             return False
     else:
-        cmd = [python_exe, "-m", "pip", "install", "mcp==1.27.0"]
+        cmd = [python_exe, "-m", "pip", "install", _repo_root()]
         if user:
             cmd.append("--user")
-        if not run_command(cmd, "Installing mcp Python package (requirements.txt missing)"):
+        if not run_command(cmd, "Installing Bridge Search from pyproject.toml (requirements.txt missing)"):
             return False
 
     if requirements_dev and os.path.isfile(requirements_dev):

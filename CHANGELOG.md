@@ -18,6 +18,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Declare read-only `contents` permission for CI jobs.
 - Align package metadata with the documented `0.2.1` release line.
 
+### Security
+
+- Upgrade the MCP Python SDK to `1.30.0` and use the same dependency pin when setup falls back to package metadata.
+
 ## [0.2.1] - 2026-04-13
 
 ### Changed
