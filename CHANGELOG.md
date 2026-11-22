@@ -4,19 +4,27 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+> The historical `v1.0.0` tag identifies a tree with package version `0.2.0`. The package version in `pyproject.toml` is authoritative for that tree.
+
+## [0.2.2] - 2026-11-22
 
 ### Added
 
 - README hero image (`docs/assets/bridge-search-hero.png`) illustrating WSL2 ↔ Windows search via Everything and AnyTXT.
 - WSL `locate` filename backend with a Bridge Search-managed database (`~/.cache/bridge-search/wsl-locate.db`) that auto-refreshes once every 24 hours.
 - Non-blocking stale-DB behavior for WSL locate: searches serve cached rows immediately and schedule refresh in the background.
+- Native Hermes MCP registration and launcher.
 
 ### Changed
 
 - Require confirmation for move and copy-overwrite operations under the existing write-confirmation policy.
 - Declare read-only `contents` permission for CI jobs.
-- Align package metadata with the documented `0.2.1` release line.
+
+### Fixed
+
+- Start the Hermes MCP server from the host's working directory.
+- Support the current AnyTXT Wt flow, improve endpoint rediscovery and avoid duplicate drive searches.
+- Honour legacy security policy aliases and revalidate canonical paths during authorisation.
 
 ### Security
 

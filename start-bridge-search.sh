@@ -1,3 +1,4 @@
 #!/bin/bash
+set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "$DIR/.venv/bin/python" -m bridge_search
+exec "$DIR/.venv/bin/python" "$DIR/scripts/server.py"
