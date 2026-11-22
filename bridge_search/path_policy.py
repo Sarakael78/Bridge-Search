@@ -213,7 +213,7 @@ def allowlist_filters_search_results() -> bool:
     return allowed_prefixes_merged() is not None
 
 
-def is_path_allowed(path: str, target_env: str) -> bool:
+def is_path_allowed(path: str, target_env: str, *, recursive: bool = False) -> bool:
     """Apply allowlist and denylist policy to a path after canonicalization."""
     if not path or not str(path).strip():
         return False
@@ -233,6 +233,8 @@ def is_path_allowed(path: str, target_env: str) -> bool:
     for p in _restricted_prefixes():
         pl = p.lower().replace("\\", "/").rstrip("/")
         if cl == pl or cl.startswith(pl + "/"):
+            return False
+        if recursive and pl.startswith(cl.rstrip("/") + "/"):
             return False
     return True
 

@@ -12,7 +12,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple, cast
 
-from .config import anytxt_search_url, backend_enabled, clamp_int, command_timeout_seconds, get_bridge_config, get_wsl_host_ip, lim, persist_anytxt_url, should_persist_anytxt_url
+from .config import anytxt_search_url, backend_enabled, clamp_int, command_timeout_seconds, get_bridge_config, get_wsl_host_ip, lim, persist_anytxt_url
 from .constants import ErrorCodes
 from .path_policy import allowlist_filters_search_results, canonical_path, is_path_allowed, looks_like_windows_abs_path, path_allowed_for_search_result, resolve_path
 from .result_models import error_response, make_issue, success_response
@@ -60,11 +60,9 @@ def get_effective_anytxt_urls() -> List[str]:
     return urls
 
 
-def _record_anytxt_runtime_url(url: str, *, source: str, probe_query: str, force: bool = False) -> str:
-    """Persist the last verified AnyTXT endpoint only when it changed."""
-    if force or should_persist_anytxt_url(url):
-        return persist_anytxt_url(url, source=source, probe_query=probe_query, force=force)
-    return anytxt_search_url()
+def _record_anytxt_runtime_url(url: str, *, source: str, probe_query: str) -> str:
+    """Persist the last verified AnyTXT endpoint for future discovery."""
+    return persist_anytxt_url(url, source=source, probe_query=probe_query)
 
 
 def _anytxt_uses_legacy_search(url: str) -> bool:
@@ -73,23 +71,12 @@ def _anytxt_uses_legacy_search(url: str) -> bool:
     return parsed.path.rstrip("/").endswith("/search")
 
 
-def _build_anytxt_rpc_payload(query: str, limit: int, offset: int) -> Dict[str, Any]:
+def _build_anytxt_rpc_payload(method: str, input_payload: Dict[str, Any], request_id: int = 123) -> Dict[str, Any]:
     return {
-        "id": 123,
+        "id": request_id,
         "jsonrpc": "2.0",
-        "method": "ATRpcServer.Searcher.V1.GetResult",
-        "params": {
-            "input": {
-                "pattern": query,
-                "filterDir": "*",
-                "filterExt": "*",
-                "lastModifyBegin": 0,
-                "lastModifyEnd": 2147483647,
-                "limit": str(limit),
-                "offset": offset,
-                "order": 0,
-            }
-        },
+        "method": method,
+        "params": {"input": input_payload},
     }
 
 
@@ -126,9 +113,94 @@ def _has_anytxt_result_container(data: Any) -> bool:
     return False
 
 
+def _extract_anytxt_count(value: Any) -> Optional[int]:
+    """Extract a best-effort count from a nested AnyTXT JSON payload."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        stripped = value.strip()
+        return int(stripped) if stripped.isdigit() else None
+    if isinstance(value, list):
+        return len(value)
+    if not isinstance(value, dict):
+        return None
+    for key in ("count", "total", "totalCount", "resultCount", "hitCount", "matches", "num", "numFiles", "fileCount"):
+        count = _extract_anytxt_count(value.get(key))
+        if count is not None:
+            return count
+    for key in ("result", "output", "data", "response", "results", "files", "items"):
+        count = _extract_anytxt_count(value.get(key))
+        if count is not None:
+            return count
+    return None
+
+
+def _extract_anytxt_snippet(value: Any) -> str:
+    """Extract a snippet/fragment string from a nested AnyTXT response payload."""
+    snippet_keys = ("snippet", "content", "fragment", "text", "matchedText", "preview", "excerpt")
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        for item in value:
+            snippet = _extract_anytxt_snippet(item)
+            if snippet:
+                return snippet
+        return ""
+    if not isinstance(value, dict):
+        return ""
+    for key in snippet_keys:
+        val = value.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    for key in ("fragments", "fragment", "result", "output", "data", "response", "items", "results", "files"):
+        snippet = _extract_anytxt_snippet(value.get(key))
+        if snippet:
+            return snippet
+    return ""
+
+
+def _query_anytxt_rpc(url: str, method: str, input_payload: Dict[str, Any], *, max_bytes: int) -> Dict[str, Any]:
+    payload = json.dumps(_build_anytxt_rpc_payload(method, input_payload), ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Accept": "application/json", "Content-Type": "application/json"},
+        method="POST",
+    )
+    return _load_anytxt_json_response(req, timeout=_subprocess_timeout(), max_bytes=max_bytes)
+
+
+def _hydrate_anytxt_snippets(url: str, query: str, hits: List[Dict[str, Any]], *, max_bytes: int, max_hydrate: int = 5) -> None:
+    """Fill in missing AnyTXT snippets with GetFragment/GetFragmentAll when available."""
+    if _anytxt_uses_legacy_search(url):
+        return
+    hydrated = 0
+    for hit in hits:
+        if hydrated >= max_hydrate:
+            break
+        if str(hit.get("snippet") or "").strip():
+            continue
+        fid = hit.get("fid")
+        if fid in (None, ""):
+            continue
+        snippet = ""
+        for method in ("ATRpcServer.Searcher.V1.GetFragment", "ATRpcServer.Searcher.V1.GetFragmentAll"):
+            try:
+                data = _query_anytxt_rpc(url, method, {"fid": fid, "pattern": query}, max_bytes=max_bytes)
+            except (AnyTxtEndpointError, OSError, urllib.error.URLError):
+                continue
+            snippet = _extract_anytxt_snippet(data)
+            if snippet:
+                break
+        if snippet:
+            hit["snippet"] = snippet
+            hydrated += 1
+
+
 def _extract_anytxt_hit(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     path_keys = ("path", "filePath", "filepath", "fullPath", "fullpath", "file_path", "name")
-    snippet_keys = ("snippet", "content", "fragment", "text", "matchedText", "preview", "excerpt")
     fid_keys = ("fid", "fileId", "file_id", "id")
     line_keys = ("line_number", "lineNumber", "line", "ln")
     raw_path = ""
@@ -139,22 +211,7 @@ def _extract_anytxt_hit(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             break
     if not raw_path:
         return None
-    snippet = ""
-    for key in snippet_keys:
-        val = item.get(key)
-        if isinstance(val, str) and val.strip():
-            snippet = val.strip()
-            break
-    if not snippet and isinstance(item.get("fragments"), list):
-        for frag in item["fragments"]:
-            if isinstance(frag, dict):
-                for key in snippet_keys:
-                    val = frag.get(key)
-                    if isinstance(val, str) and val.strip():
-                        snippet = val.strip()
-                        break
-                if snippet:
-                    break
+    snippet = _extract_anytxt_snippet(item)
     hit: Dict[str, Any] = {"type": "content_hit", "path": raw_path, "raw_path": raw_path, "snippet": snippet, "source": "windows-anytxt"}
     for key in fid_keys:
         val = item.get(key)
@@ -188,7 +245,7 @@ def _extract_anytxt_wt_token(page_html: str) -> Optional[str]:
 
 
 def _extract_anytxt_wt_sid(page_html: str) -> Optional[str]:
-    m = re.search(r"var\s+w\s*=\s*['\"]\?wtd=[^'\"]+['\"]\s*\+\s*[\"']&sid=[\"']\s*\+\s*(\d+)", page_html)
+    m = re.search(r"var\s+w='\?wtd=[^']+'\+\"&sid=\"\+(\d+)", page_html)
     return m.group(1) if m else None
 
 
@@ -362,7 +419,222 @@ def _load_anytxt_json_response(req: urllib.request.Request, *, timeout: float, m
     return cast(Dict[str, Any], data)
 
 
-def _query_anytxt_hits(url: str, query: str, *, limit: int, offset: int, max_bytes: int) -> List[Dict[str, Any]]:
+def _query_anytxt_search_count(url: str, query: str, *, max_bytes: int) -> int:
+    """Use AnyTXT's Search method to probe the endpoint and return a best-effort match count."""
+    if _anytxt_uses_legacy_search(url):
+        sep = "&" if urllib.parse.urlparse(url).query else "?"
+        req = urllib.request.Request(f"{url}{sep}q={urllib.parse.quote(query)}")
+        data = _load_anytxt_json_response(req, timeout=_subprocess_timeout(), max_bytes=max_bytes)
+        count = _extract_anytxt_count(data)
+        if count is None and _has_anytxt_result_container(data):
+            count = len(_extract_anytxt_result_items(data))
+        if count is None:
+            raise AnyTxtEndpointError("AnyTXT JSON response did not contain a recognised result count.", code=ErrorCodes.INVALID_RESPONSE)
+        return count
+
+    data = _query_anytxt_rpc(
+        url,
+        "ATRpcServer.Searcher.V1.Search",
+        {
+            "pattern": query,
+            "filterDir": "*",
+            "filterExt": "*",
+            "lastModifyBegin": 0,
+            "lastModifyEnd": 2147483647,
+        },
+        max_bytes=max_bytes,
+    )
+    count = _extract_anytxt_count(data)
+    if count is None and _has_anytxt_result_container(data):
+        count = len(_extract_anytxt_result_items(data))
+    if count is None:
+        raise AnyTxtEndpointError("AnyTXT JSON response did not contain a recognised result count.", code=ErrorCodes.INVALID_RESPONSE)
+    return count
+
+
+def _query_anytxt_ocr(url: str, file_path: str, *, max_bytes: int) -> Dict[str, Any]:
+    """Use AnyTXT's OCR method and return the raw JSON payload."""
+    if _anytxt_uses_legacy_search(url):
+        raise AnyTxtEndpointError("AnyTXT OCR requires the JSON-RPC endpoint.")
+    data = _query_anytxt_rpc(
+        url,
+        "ATRpcServer.Searcher.V1.OCR",
+        {"file": file_path},
+        max_bytes=max_bytes,
+    )
+    _validate_anytxt_helper_result(data)
+    return data
+
+
+def _query_anytxt_sync_index(url: str, folder: str, *, max_bytes: int) -> Dict[str, Any]:
+    """Use AnyTXT's SyncIndex method and return the raw JSON payload."""
+    if _anytxt_uses_legacy_search(url):
+        raise AnyTxtEndpointError("AnyTXT SyncIndex requires the JSON-RPC endpoint.")
+    data = _query_anytxt_rpc(
+        url,
+        "ATRpcServer.Searcher.V1.SyncIndex",
+        {"folder": folder},
+        max_bytes=max_bytes,
+    )
+    _validate_anytxt_helper_result(data)
+    return data
+
+
+def _validate_anytxt_helper_result(data: Dict[str, Any]) -> None:
+    if isinstance(data, dict) and data.get("error") is not None:
+        raise AnyTxtEndpointError("AnyTXT rejected the JSON-RPC request.", code=ErrorCodes.BACKEND_ERROR)
+    if not isinstance(data, dict) or "result" not in data:
+        raise AnyTxtEndpointError("AnyTXT returned no JSON-RPC result.", code=ErrorCodes.INVALID_RESPONSE)
+
+
+def _anytxt_windows_path(raw_path: str, *, folder: bool = False) -> str:
+    """Authorise the locally visible target and send its canonical Windows drive path."""
+    local_path = resolve_path(raw_path, "wsl")
+    if not os.path.isabs(local_path) or looks_like_windows_abs_path(local_path):
+        raise AnyTxtEndpointError("Use an absolute path on a Windows drive visible to WSL.", code=ErrorCodes.PATH_TRANSLATION_FAILED)
+    try:
+        target = os.path.realpath(local_path, strict=True)
+    except (OSError, ValueError) as exc:
+        raise AnyTxtEndpointError("The requested path could not be inspected.", code=ErrorCodes.PATH_BLOCKED) from exc
+    if not is_path_allowed(target, "wsl", recursive=folder):
+        raise AnyTxtEndpointError("Access to the resolved path or subtree is blocked.", code=ErrorCodes.PATH_BLOCKED)
+
+    windows_path = resolve_path(target, "windows")
+    if not re.fullmatch(r"[A-Za-z]:[\\/][^:]+", windows_path):
+        raise AnyTxtEndpointError("The resolved path must be on a local Windows drive.", code=ErrorCodes.PATH_TRANSLATION_FAILED)
+    if folder:
+        _check_anytxt_sync_tree(target)
+    elif not os.path.isfile(target):
+        raise AnyTxtEndpointError("OCR requires a regular file.", code=ErrorCodes.PATH_BLOCKED)
+    return windows_path
+
+
+def _check_anytxt_sync_tree(folder: str) -> None:
+    limit = lim("max_catalog_lines")
+    checked = 0
+    pending = [folder]
+    try:
+        while pending:
+            with os.scandir(pending.pop()) as entries:
+                for entry in entries:
+                    checked += 1
+                    if checked > limit:
+                        raise AnyTxtEndpointError("Folder exceeds the scope check limit. Choose a narrower folder.", code=ErrorCodes.PATH_BLOCKED)
+                    if entry.is_symlink() or not is_path_allowed(entry.path, "wsl"):
+                        raise AnyTxtEndpointError("Folder contains a link or a protected entry.", code=ErrorCodes.PATH_BLOCKED)
+                    if entry.is_dir(follow_symlinks=False):
+                        if os.path.ismount(entry.path):
+                            raise AnyTxtEndpointError("Folder contains a mounted filesystem.", code=ErrorCodes.PATH_BLOCKED)
+                        pending.append(entry.path)
+                    elif not entry.is_file(follow_symlinks=False):
+                        raise AnyTxtEndpointError("Folder contains a non-regular entry.", code=ErrorCodes.PATH_BLOCKED)
+    except OSError as exc:
+        raise AnyTxtEndpointError("The entire folder could not be inspected.", code=ErrorCodes.PATH_BLOCKED) from exc
+
+
+def anytxt_ocr(file_path: str) -> Dict[str, Any]:
+    """Run AnyTXT OCR for an image file and return a structured bridge response."""
+    cap_anytxt = lim("anytxt_max_response_bytes")
+    raw_path = (file_path or "").strip()
+    meta: Dict[str, Any] = {"anytxt_url": anytxt_search_url(), "file": raw_path}
+    if not raw_path:
+        return _query_required_response(source="anytxt-ocr", meta=meta)
+
+    if not backend_enabled("anytxt"):
+        return error_response(code=ErrorCodes.BACKEND_DISABLED, message="AnyTXT is disabled.", source="windows-anytxt", meta=meta)
+    try:
+        normalized_path = _anytxt_windows_path(raw_path)
+    except AnyTxtEndpointError as exc:
+        return error_response(code=exc.code, message=str(exc), source="windows-anytxt", path=raw_path, meta=meta)
+    results: List[Dict[str, Any]] = []
+    errors: List[Dict[str, Any]] = []
+    warnings: List[Dict[str, Any]] = []
+    used_url = ""
+    last_err: Optional[BaseException] = None
+
+    for url in get_effective_anytxt_urls():
+        try:
+            data = _query_anytxt_ocr(url, normalized_path, max_bytes=cap_anytxt)
+            text = _extract_anytxt_snippet(data)
+            results.append(
+                {
+                    "type": "ocr_result",
+                    "path": normalized_path,
+                    "raw_path": raw_path,
+                    "text": text,
+                    "response": data,
+                    "source": "windows-anytxt",
+                }
+            )
+            used_url = url
+            _record_anytxt_runtime_url(url, source="anytxt-ocr", probe_query=normalized_path)
+            break
+        except (OSError, urllib.error.URLError, AnyTxtEndpointError) as exc:
+            last_err = exc
+            continue
+
+    if used_url:
+        meta["anytxt_url_used"] = used_url
+        return success_response(results=results, errors=errors, warnings=warnings, meta=meta)
+
+    if isinstance(last_err, AnyTxtEndpointError):
+        return error_response(code=last_err.code, message=str(last_err), source="windows-anytxt", meta=meta)
+    if last_err is not None and _is_timeout_error(last_err):
+        return error_response(code=ErrorCodes.BACKEND_TIMEOUT, message="AnyTXT OCR timed out.", source="windows-anytxt", meta=meta)
+    return error_response(code=ErrorCodes.BACKEND_ERROR, message=str(last_err or "AnyTXT OCR failed."), source="windows-anytxt", meta=meta)
+
+
+def anytxt_sync_index(folder: str, is_confirmed: bool = False) -> Dict[str, Any]:
+    """Ask AnyTXT to sync a folder into its index and return a structured bridge response."""
+    raw_folder = (folder or "").strip()
+    url = anytxt_search_url()
+    meta: Dict[str, Any] = {"anytxt_url": url, "folder": raw_folder}
+    if not raw_folder:
+        return _query_required_response(source="anytxt-sync-index", meta=meta)
+
+    if not backend_enabled("anytxt"):
+        return error_response(code=ErrorCodes.BACKEND_DISABLED, message="AnyTXT is disabled.", source="windows-anytxt", meta=meta)
+    if is_confirmed is not True:
+        return error_response(
+            code=ErrorCodes.WRITE_CONFIRMATION_REQUIRED,
+            message="Pass is_confirmed=True after reviewing the entire folder to index.",
+            source="windows-anytxt",
+            path=raw_folder,
+            meta=meta,
+        )
+    try:
+        normalized_folder = _anytxt_windows_path(raw_folder, folder=True)
+    except AnyTxtEndpointError as exc:
+        return error_response(code=exc.code, message=str(exc), source="windows-anytxt", path=raw_folder, meta=meta)
+    try:
+        data = _query_anytxt_sync_index(url, normalized_folder, max_bytes=lim("anytxt_max_response_bytes"))
+    except (AnyTxtEndpointError, OSError, UnicodeError) as exc:
+        if isinstance(exc, AnyTxtEndpointError):
+            code = exc.code
+            if code not in {ErrorCodes.INVALID_RESPONSE, ErrorCodes.RESPONSE_TOO_LARGE}:
+                return error_response(code=code, message=str(exc), source="windows-anytxt", meta=meta)
+        elif isinstance(exc, UnicodeError):
+            code = ErrorCodes.INVALID_RESPONSE
+        else:
+            code = ErrorCodes.BACKEND_TIMEOUT if _is_timeout_error(exc) else ErrorCodes.BACKEND_ERROR
+        return error_response(
+            code=code,
+            message="AnyTXT did not confirm the index request. Check its status before retrying.",
+            source="windows-anytxt",
+            details={"outcome": "unknown"},
+            meta=meta,
+        )
+    meta["anytxt_url_used"] = url
+    return success_response(results=[{
+        "type": "sync_index_result",
+        "path": normalized_folder,
+        "raw_path": raw_folder,
+        "response": data,
+        "source": "windows-anytxt",
+    }], meta=meta)
+
+
+def _query_anytxt_hits(url: str, query: str, *, limit: int, offset: int, max_bytes: int, hydrate_fragments: bool = False) -> List[Dict[str, Any]]:
     if _anytxt_uses_legacy_search(url):
         sep = "&" if urllib.parse.urlparse(url).query else "?"
         req = urllib.request.Request(f"{url}{sep}q={urllib.parse.quote(query)}")
@@ -376,15 +648,22 @@ def _query_anytxt_hits(url: str, query: str, *, limit: int, offset: int, max_byt
                 legacy_hits.append(hit)
         return legacy_hits
 
-    payload = json.dumps(_build_anytxt_rpc_payload(query, limit, offset), ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=payload,
-        headers={"Accept": "application/json", "Content-Type": "application/json"},
-        method="POST",
-    )
     try:
-        data = _load_anytxt_json_response(req, timeout=_subprocess_timeout(), max_bytes=max_bytes)
+        data = _query_anytxt_rpc(
+            url,
+            "ATRpcServer.Searcher.V1.GetResult",
+            {
+                "pattern": query,
+                "filterDir": "*",
+                "filterExt": "*",
+                "lastModifyBegin": 0,
+                "lastModifyEnd": 2147483647,
+                "limit": str(limit),
+                "offset": offset,
+                "order": 0,
+            },
+            max_bytes=max_bytes,
+        )
         if not _has_anytxt_result_container(data):
             raise AnyTxtEndpointError("AnyTXT JSON response did not contain a recognised result list.", code=ErrorCodes.INVALID_RESPONSE)
         rpc_hits: List[Dict[str, Any]] = []
@@ -392,6 +671,8 @@ def _query_anytxt_hits(url: str, query: str, *, limit: int, offset: int, max_byt
             hit = _extract_anytxt_hit(item)
             if hit is not None:
                 rpc_hits.append(hit)
+        if hydrate_fragments and rpc_hits:
+            _hydrate_anytxt_snippets(url, query, rpc_hits, max_bytes=max_bytes)
         if rpc_hits or _has_anytxt_result_container(data):
             return rpc_hits
     except AnyTxtEndpointError as exc:
@@ -1087,7 +1368,7 @@ def content_locator(query: str, target_env: str = "everywhere", wsl_search_path:
         effective_urls = get_effective_anytxt_urls()
         for url in effective_urls:
             try:
-                hits = _query_anytxt_hits(url, query, limit=page_cap, offset=offset, max_bytes=cap_anytxt)
+                hits = _query_anytxt_hits(url, query, limit=page_cap, offset=offset, max_bytes=cap_anytxt, hydrate_fragments=True)
                 for item in hits:
                     if len(a_results) >= cap_loc:
                         break
@@ -1106,8 +1387,7 @@ def content_locator(query: str, target_env: str = "everywhere", wsl_search_path:
                     a_results.append(hit)
                 used_url = url
                 anytxt_ok = True
-                if url != anytxt_search_url():
-                    _record_anytxt_runtime_url(url, source="content-locator", probe_query=query)
+                _record_anytxt_runtime_url(url, source="content-locator", probe_query=query)
                 break
             except (OSError, urllib.error.URLError, AnyTxtEndpointError) as exc:
                 last_err = exc

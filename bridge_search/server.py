@@ -1,9 +1,11 @@
 from typing import Any, Dict, List, Optional
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import StrictBool
 
-from .bridge_tools import catalog_directory, content_locator, hybrid_file_io, system_locator
+from .bridge_tools import anytxt_ocr as bridge_anytxt_ocr, anytxt_sync_index as bridge_anytxt_sync_index, catalog_directory, content_locator, hybrid_file_io, system_locator
 from .health import check_health
+from .knowledge_search import search_approved_knowledge
 from .result_models import success_response
 
 mcp = FastMCP("bridge-search")
@@ -116,6 +118,36 @@ def locate_content_inside_files(
     is_confirmed on other tools is a workflow flag for the agent, not cryptographic authorization or a substitute for OS-level approval.
     """
     return content_locator(query, target_env, wsl_search_path, limit, offset)
+
+
+@mcp.tool()
+def search_knowledge_base(
+    query: str,
+    knowledge_root: str = "hermes_agent_brain",
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Search one configured read-only Markdown knowledge root with file provenance and SHA-256 hashes."""
+    return search_approved_knowledge(query, knowledge_root, limit)
+
+
+@mcp.tool()
+def anytxt_ocr(file_path: str) -> Dict[str, Any]:
+    """
+    Run AnyTXT OCR for a single image file via the JSON-RPC helper path.
+    The resolved image must be on a local Windows drive and within the configured path policy.
+    Returns the standard bridge response shape: success, results, errors, warnings, meta.
+    """
+    return bridge_anytxt_ocr(file_path)
+
+
+@mcp.tool()
+def anytxt_sync_index(folder: str, is_confirmed: StrictBool = False) -> Dict[str, Any]:
+    """
+    Ask AnyTXT to sync a folder into its index. Review the entire folder and pass is_confirmed=True.
+    Its subtree must pass the path policy and scope check. Check AnyTXT status before retrying an unconfirmed outcome.
+    Returns the standard bridge response shape: success, results, errors, warnings, meta.
+    """
+    return bridge_anytxt_sync_index(folder, is_confirmed=is_confirmed)
 
 
 if __name__ == "__main__":
